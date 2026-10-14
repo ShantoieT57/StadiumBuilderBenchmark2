@@ -32,7 +32,8 @@ public sealed class AppSettings : IAppSettings
     /// <summary>
     /// The IANA time-zone id of the transaction export: the export date in the file name is today's
     /// date in this zone, and each transaction's Last Changed On is written in it. South Africa by
-    /// default, where the bank is.
+    /// default, where the bank is. A Windows id (e.g. "South Africa Standard Time") is also accepted
+    /// where .NET can convert it. An id that does not resolve stops the application at startup.
     /// </summary>
     public string ExportTimeZone { get; set; } = "Africa/Johannesburg";
 }

@@ -29,7 +29,7 @@ public sealed class Controller(
     TransactionRepository transactionRepository,
     TransactionReviewRepository transactionReviewRepository,
     TimeProvider timeProvider,
-    AppSettings settings) : ControllerBase
+    ExportTimeZone exportTimeZone) : ControllerBase
 {
     private const string CsvContentType = "text/csv";
     private const string FileNotFoundMessage = "File not found";
@@ -335,10 +335,9 @@ public sealed class Controller(
             return Conflict(new ErrorResponse { Message = filter.IsEmpty ? NoTransactionsToExportMessage : NoMatchesToExportMessage });
         }
 
-        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(settings.ExportTimeZone);
-        var exportDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), timeZone).DateTime);
+        var exportDate = exportTimeZone.Today(timeProvider);
         var rows = transactionRepository.ExportAsync(filter, TransactionCriteria.CreateSort(sortBy, sortDirection), cancellationToken);
-        return new TransactionCsvResult(rows, ExportFileName.Create(filter, anyMatch.FileName, exportDate), timeZone);
+        return new TransactionCsvResult(rows, ExportFileName.Create(filter, anyMatch.FileName, exportDate), exportTimeZone.Zone);
     }
 
     /// <summary>Both roles (TL-06).</summary>

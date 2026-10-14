@@ -45,6 +45,7 @@ public static class WebHostFactory
     private static void RegisterServices(IServiceCollection services, AppSettings settings, NpgsqlDataSource dataSource)
     {
         services.AddSingleton(settings);
+        services.AddSingleton(ExportTimeZone.From(settings));
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(dataSource);
         services.AddSingleton<UserRepository>();

@@ -189,6 +189,18 @@ Feature: Exporting transactions
     And the export is an attachment named "transactions_2026-04-14.csv"
     And the exported Last Changed On of "TXN-001" reads back as "2026-04-14 23:30:00"
 
+  Scenario: A non-default export time zone is used for the export date and Last Changed On
+    Given these transactions exist:
+      | reference | created at           |
+      | TXN-001   | 2026-04-14T23:30:00Z |
+    And the export time zone is "Europe/London"
+    And the current time is "2026-04-14T22:30:00Z"
+    And I am signed in as "approver@digiata.com"
+    When I export the transactions
+    Then the response status code is 200
+    And the export is an attachment named "transactions_2026-04-14.csv"
+    And the exported Last Changed On of "TXN-001" reads back as "2026-04-15 00:30:00"
+
   Scenario: Transactions of a cancelled file are never exported
     Given these files exist:
       | name          | cancelled | imported |

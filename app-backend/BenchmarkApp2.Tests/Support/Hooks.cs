@@ -17,8 +17,13 @@ public sealed class Hooks
     /// </summary>
     [AfterScenario]
     public static async Task StopHostsAsync(
-        TransactionApiFixture api, FileProcessorFixture fileProcessor, SimulatedProcessing processing, HeldDatabaseLock heldLock)
+        TransactionApiFixture api,
+        FileProcessorFixture fileProcessor,
+        SimulatedProcessing processing,
+        HeldDatabaseLock heldLock,
+        ApplicationFixture application)
     {
+        await application.DisposeAsync();
         await heldLock.DisposeAsync();
         await processing.DisposeAsync();
         await fileProcessor.DisposeAsync();
