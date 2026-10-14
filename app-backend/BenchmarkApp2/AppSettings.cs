@@ -28,4 +28,11 @@ public sealed class AppSettings : IAppSettings
     /// been woken by an upload.
     /// </summary>
     public int FileProcessorPollIntervalSeconds { get; set; } = 10;
+
+    /// <summary>
+    /// The IANA time-zone id of the transaction export: the export date in the file name is today's
+    /// date in this zone, and each transaction's Last Changed On is written in it. South Africa by
+    /// default, where the bank is.
+    /// </summary>
+    public string ExportTimeZone { get; set; } = "Africa/Johannesburg";
 }

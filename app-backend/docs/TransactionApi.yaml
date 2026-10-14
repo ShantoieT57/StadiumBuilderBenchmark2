@@ -23,8 +23,8 @@ tags:
   - name: Transactions
     description: >-
       Listing, searching and filtering transactions, a transaction's details, the number of
-      transactions still Imported (approvers only), and approving or rejecting a transaction
-      (approvers only). Transactions of cancelled files are removed when the file is cancelled and
+      transactions still Imported (approvers only), approving or rejecting a transaction
+      (approvers only), and exporting transactions to CSV (approvers only). Transactions of cancelled files are removed when the file is cancelled and
       never appear here.
 paths:
   /transactions:
@@ -73,88 +73,15 @@ paths:
             type: integer
             format: int32
             default: 20
-        - name: sortBy
-          in: query
-          required: false
-          description: The column to sort on. Defaults to `TransactionDate`.
-          schema:
-            $ref: '#/components/schemas/TransactionSortColumn'
-        - name: sortDirection
-          in: query
-          required: false
-          description: >-
-            The sort direction. Defaults to `Desc` when sorting on `TransactionDate` (the default
-            column, most recent first), and to `Asc` for every other column.
-          schema:
-            $ref: '#/components/schemas/SortDirection'
-        - name: status
-          in: query
-          required: false
-          description: Lists only the transactions with this status (DB-01, FD-02).
-          schema:
-            $ref: '#/components/schemas/TransactionStatus'
-        - name: fileId
-          in: query
-          required: false
-          description: >-
-            Lists only the transactions loaded from this file (FD-02). An id that is not a file, or
-            a cancelled file, matches nothing.
-          schema:
-            type: string
-            format: uuid
-        - name: dateFrom
-          in: query
-          required: false
-          description: >-
-            Lists only the transactions dated on or after this point (inclusive). Transaction dates
-            are local dates and times exactly as written in the file, with no time zone, so this
-            value has no time zone either. Either a date (`2026-04-15`), meaning from the start of
-            that day, or a date and time (`2026-04-15T08:30`, `2026-04-15T08:30:00` or with a
-            fraction of a second; times are compared to the microsecond, and any finer fraction is
-            ignored). A value with a time-zone offset or `Z` is refused.
-          schema:
-            type: string
-            example: '2026-04-15'
-        - name: dateTo
-          in: query
-          required: false
-          description: >-
-            Lists only the transactions dated on or before this point (inclusive), in the same
-            forms as `dateFrom`. A date (`2026-04-30`) means up to and including the whole of that
-            day; a date and time means up to and including that moment. Must not be earlier than
-            `dateFrom`.
-          schema:
-            type: string
-            example: '2026-04-30'
-        - name: minAmount
-          in: query
-          required: false
-          description: >-
-            Lists only the transactions with an amount of at least this value (inclusive). A
-            decimal number of 0 or more, e.g. `100` or `100.50`.
-          schema:
-            type: number
-            format: decimal
-            minimum: 0
-        - name: maxAmount
-          in: query
-          required: false
-          description: >-
-            Lists only the transactions with an amount of at most this value (inclusive). A decimal
-            number of 0 or more, not less than `minAmount`.
-          schema:
-            type: number
-            format: decimal
-            minimum: 0
-        - name: search
-          in: query
-          required: false
-          description: >-
-            Lists only the transactions whose reference or account number contains this text,
-            ignoring upper and lower case. Every character is matched literally (`%` and `_` are
-            not wildcards). Leading and trailing spaces are ignored; an empty value is no filter.
-          schema:
-            type: string
+        - $ref: '#/components/parameters/TransactionSortBy'
+        - $ref: '#/components/parameters/TransactionSortDirection'
+        - $ref: '#/components/parameters/TransactionStatusFilter'
+        - $ref: '#/components/parameters/TransactionFileIdFilter'
+        - $ref: '#/components/parameters/TransactionDateFrom'
+        - $ref: '#/components/parameters/TransactionDateTo'
+        - $ref: '#/components/parameters/TransactionMinAmount'
+        - $ref: '#/components/parameters/TransactionMaxAmount'
+        - $ref: '#/components/parameters/TransactionSearch'
       responses:
         '200':
           description: One page of transactions.
@@ -175,6 +102,125 @@ paths:
                 $ref: '#/components/schemas/ValidationProblem'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+  /transactions/export:
+    get:
+      tags: [Transactions]
+      operationId: ExportTransactions
+      summary: Export the filtered, sorted transactions as a CSV file (EX-01..EX-06, approvers only).
+      description: >-
+        Returns every transaction that matches the filters, across all pages, as a CSV attachment
+        (EX-01). Takes exactly the same filter and sort parameters as `GET /transactions`, validated
+        the same way and refused with the same 400s; with no filters every transaction is exported
+        (EX-02). Rows are in the same order as the list with the same sort: by default the most
+        recent transaction date first. There is no paging: `page` and `pageSize` are not parameters
+        of this operation and are ignored when sent. Only transactions of files that are not
+        cancelled are ever exported (FX-03). Importers are refused with 403 (TL-05). Rows are
+        streamed, so a large export is never held in memory.
+
+
+        Columns (EX-03), after a header row with these exact names, in this order: `Reference`,
+        `Transaction Date`, `Account Number`, `Description`, `Amount`, `Currency`, `Type` (`Credit`
+        or `Debit`), `Status`, `File`, `Rejection Reason` (empty unless Rejected), `Last Changed By`
+        (`System` for a loaded transaction) and `Last Changed On`.
+
+
+        Format (EX-06), so the file opens cleanly in a spreadsheet such as Excel: UTF-8 with a
+        byte-order mark; every record, including the last, ends with CR LF; fields are quoted as in
+        RFC 4180 (a field holding a comma, a double quote, a CR or an LF is enclosed in double
+        quotes, and each double quote inside it is doubled; line breaks inside a field are kept as
+        they are). `Amount` always has exactly two decimals and a dot, with no thousands separators
+        and no sign (e.g. `15750.00`). `Transaction Date` is the local date and time exactly as in
+        the file, with no time zone, as `yyyy-MM-dd HH:mm:ss` followed by the fraction of a second
+        only when there is one (e.g. `2026-04-15 08:30:00`, `2026-04-14 17:05:30.25`).
+        `Last Changed On` is given to the second as `yyyy-MM-dd HH:mm:ss` in the export time zone
+        (the `ExportTimeZone` app setting, an IANA time-zone id, `Africa/Johannesburg` (SAST,
+        UTC+02:00) by default).
+
+
+        Formula injection (OWASP CSV injection): a text cell (`Reference`, `Account Number`,
+        `Description`, `Currency`, `File`, `Rejection Reason`, `Last Changed By`) whose value
+        starts with `=`, `+`, `-`, `@`, a tab or a carriage return is written with a leading
+        apostrophe (`'`), so a spreadsheet shows it as text and never runs it as a formula. Other
+        cells are never altered; `Amount` is never negative.
+
+
+        File name (EX-04): `transactions_[<filters>_]<export date>.csv`, sent in
+        `Content-Disposition` as `attachment` with both `filename` and, UTF-8 encoded, `filename*`
+        (RFC 6266 / RFC 5987). The export date is today's date (`yyyy-MM-dd`) in the export time
+        zone, so just after midnight in Johannesburg is already the next day even though it is
+        still the previous day in UTC. Each active filter adds one part, always in this order,
+        separated by `_`:
+
+          1. status: the status itself, e.g. `Imported`;
+          2. file: `file-<file name>`, the file's name without its `.csv` extension;
+          3. transaction dates: `from-<start>-to-<end>`, `from-<start>` or `to-<end>`, each written
+             as `yyyy-MM-dd` when it is a whole day (the start of the day for `dateFrom`, the end of
+             the day for `dateTo`), otherwise as `yyyy-MM-ddTHHmm`, with `ss` added when the seconds
+             are not zero;
+          4. amounts: `amount-<min>-to-<max>`, `amount-from-<min>` or `amount-to-<max>`, each
+             written with a dot and without trailing zeros (e.g. `100`, `200.5`);
+          5. search: `search-<text>`.
+
+        File names and search text are made safe for every file system: each run of characters
+        other than letters, digits, `-` and `.` (spaces and `\ / : * ? " < > |` among them) becomes
+        one `-`, leading and trailing `-` and `.` are removed, and the result is cut to at most 40
+        characters; when nothing is left, the part is just `file` or `search`. For example
+        `transactions_2026-04-15.csv` with no filters, `transactions_Imported_2026-04-15.csv`, and
+        `transactions_Rejected_file-April-Batch-1_from-2026-04-01-to-2026-04-30_amount-from-100_search-INV_2026-04-15.csv`.
+        The whole name stays well within 255 characters.
+      parameters:
+        - $ref: '#/components/parameters/TransactionSortBy'
+        - $ref: '#/components/parameters/TransactionSortDirection'
+        - $ref: '#/components/parameters/TransactionStatusFilter'
+        - $ref: '#/components/parameters/TransactionFileIdFilter'
+        - $ref: '#/components/parameters/TransactionDateFrom'
+        - $ref: '#/components/parameters/TransactionDateTo'
+        - $ref: '#/components/parameters/TransactionMinAmount'
+        - $ref: '#/components/parameters/TransactionMaxAmount'
+        - $ref: '#/components/parameters/TransactionSearch'
+      responses:
+        '200':
+          description: >-
+            The matching transactions as a CSV file, sent with the content type
+            `text/csv; charset=utf-8`.
+          headers:
+            Content-Disposition:
+              description: >-
+                `attachment` with the export's file name, e.g.
+                `attachment; filename=transactions_Imported_2026-04-15.csv; filename*=UTF-8''transactions_Imported_2026-04-15.csv`.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: >-
+            A query value is invalid, exactly as for `GET /transactions`: an unknown sort column,
+            sort direction or status, a file id that is not a UUID, a date that cannot be read or
+            has a time-zone offset, `dateFrom` later than `dateTo`, an amount that is not a number
+            or is negative, or `minAmount` greater than `maxAmount`. The failing query parameters
+            are listed under `errors`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: >-
+            Nothing matches, so there is nothing to export (EX-05). With filters, the `message` is
+            "No transactions match the current filters, so there is nothing to export."; with no
+            filters and no transactions at all, it is "There are no transactions yet, so there is
+            nothing to export." 409 is used, as elsewhere in this API, because the request is valid
+            but the current data does not allow it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /transactions/imported-count:
     get:
       tags: [Transactions]
@@ -838,6 +884,99 @@ components:
       schema:
         type: string
         format: uuid
+    # The transaction filter and sort parameters, shared by the transactions list and the export so
+    # both select exactly the same transactions in the same order (EX-01).
+    TransactionSortBy:
+      name: sortBy
+      in: query
+      required: false
+      description: The column to sort on. Defaults to `TransactionDate`.
+      schema:
+        $ref: '#/components/schemas/TransactionSortColumn'
+    TransactionSortDirection:
+      name: sortDirection
+      in: query
+      required: false
+      description: >-
+        The sort direction. Defaults to `Desc` when sorting on `TransactionDate` (the default
+        column, most recent first), and to `Asc` for every other column.
+      schema:
+        $ref: '#/components/schemas/SortDirection'
+    TransactionStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Selects only the transactions with this status (DB-01, FD-02).
+      schema:
+        $ref: '#/components/schemas/TransactionStatus'
+    TransactionFileIdFilter:
+      name: fileId
+      in: query
+      required: false
+      description: >-
+        Selects only the transactions loaded from this file (FD-02). An id that is not a file, or
+        a cancelled file, matches nothing.
+      schema:
+        type: string
+        format: uuid
+    TransactionDateFrom:
+      name: dateFrom
+      in: query
+      required: false
+      description: >-
+        Selects only the transactions dated on or after this point (inclusive). Transaction dates
+        are local dates and times exactly as written in the file, with no time zone, so this
+        value has no time zone either. Either a date (`2026-04-15`), meaning from the start of
+        that day, or a date and time (`2026-04-15T08:30`, `2026-04-15T08:30:00` or with a
+        fraction of a second; times are compared to the microsecond, and any finer fraction is
+        ignored). A value with a time-zone offset or `Z` is refused.
+      schema:
+        type: string
+        example: '2026-04-15'
+    TransactionDateTo:
+      name: dateTo
+      in: query
+      required: false
+      description: >-
+        Selects only the transactions dated on or before this point (inclusive), in the same
+        forms as `dateFrom`. A date (`2026-04-30`) means up to and including the whole of that
+        day; a date and time means up to and including that moment. Must not be earlier than
+        `dateFrom`.
+      schema:
+        type: string
+        example: '2026-04-30'
+    TransactionMinAmount:
+      name: minAmount
+      in: query
+      required: false
+      description: >-
+        Selects only the transactions with an amount of at least this value (inclusive). A
+        decimal number of 0 or more, e.g. `100` or `100.50`.
+      schema:
+        type: number
+        format: decimal
+        minimum: 0
+    TransactionMaxAmount:
+      name: maxAmount
+      in: query
+      required: false
+      description: >-
+        Selects only the transactions with an amount of at most this value (inclusive). A decimal
+        number of 0 or more, not less than `minAmount`.
+      schema:
+        type: number
+        format: decimal
+        minimum: 0
+    TransactionSearch:
+      name: search
+      in: query
+      required: false
+      description: >-
+        Selects only the transactions whose reference or account number contains this text,
+        ignoring upper and lower case. Every character is matched literally (`%` and `_` are
+        not wildcards). Leading and trailing spaces are ignored; an empty value is no filter.
+      schema:
+        type: string
   responses:
     TransactionNotFound:
       description: No transaction has this id ("Transaction not found"), or its file has been cancelled.

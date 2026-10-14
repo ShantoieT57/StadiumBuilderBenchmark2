@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Dapper;
 using Npgsql;
 
@@ -51,6 +52,13 @@ public sealed class TransactionRepository(NpgsqlDataSource dataSource)
         t.file_id AS FileId, f.file_name AS FileName
         """;
 
+    private const string DetailsColumns = $"""
+        {ListColumns},
+        t.created_by AS CreatedBy, t.created_at AS CreatedAt,
+        t.last_changed_by AS LastChangedBy, t.last_changed_at AS LastChangedAt,
+        t.rejection_reason AS RejectionReason
+        """;
+
     /// <summary>Lists one page of the transactions that match the filter, in the sort order (TL-01..TL-03, SF-01, SF-02).</summary>
     public async Task<TransactionListPage> ListAsync(
         TransactionFilter filter, TransactionSort sort, long offset, int limit, CancellationToken cancellationToken)
@@ -79,6 +87,43 @@ public sealed class TransactionRepository(NpgsqlDataSource dataSource)
         return new TransactionListPage(rows, totalCount, hasAnyTransactions);
     }
 
+    /// <summary>Any one transaction that matches the filter, or null when none does (EX-05).</summary>
+    public async Task<TransactionListRow?> FindAnyMatchAsync(TransactionFilter filter, CancellationToken cancellationToken)
+    {
+        var sql = $"""
+            SELECT {ListColumns}
+            {TransactionQuerySql.From}
+            {TransactionQuerySql.Where(filter)}
+            LIMIT 1
+            """;
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<TransactionListRow>(
+            new CommandDefinition(sql, TransactionQuerySql.Parameters(filter), cancellationToken: cancellationToken));
+    }
+
+    /// <summary>
+    /// Every transaction that matches the filter, with all its details, in the sort order, across
+    /// all pages (EX-01, EX-02). The rows are read from the database one at a time while they are
+    /// enumerated, so a large export is never held in memory; the connection is held until the
+    /// enumeration ends.
+    /// </summary>
+    public async IAsyncEnumerable<TransactionDetailsRow> ExportAsync(
+        TransactionFilter filter, TransactionSort sort, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var sql = $"""
+            SELECT {DetailsColumns}
+            {TransactionQuerySql.From}
+            {TransactionQuerySql.Where(filter)}
+            {TransactionQuerySql.OrderBy(sort)}
+            """;
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = connection.QueryUnbufferedAsync<TransactionDetailsRow>(sql, TransactionQuerySql.Parameters(filter));
+        await foreach (var row in rows.WithCancellation(cancellationToken))
+        {
+            yield return row;
+        }
+    }
+
     /// <summary>The transaction's details, or null when no transaction of a file that is not cancelled has the id.</summary>
     public async Task<TransactionDetailsRow?> GetAsync(Guid transactionId, CancellationToken cancellationToken)
     {
@@ -94,10 +139,7 @@ public sealed class TransactionRepository(NpgsqlDataSource dataSource)
         NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid transactionId, CancellationToken cancellationToken)
     {
         const string sql = $"""
-            SELECT {ListColumns},
-                   t.created_by AS CreatedBy, t.created_at AS CreatedAt,
-                   t.last_changed_by AS LastChangedBy, t.last_changed_at AS LastChangedAt,
-                   t.rejection_reason AS RejectionReason
+            SELECT {DetailsColumns}
             {TransactionQuerySql.From}
             WHERE t.id = @transactionId
             """;

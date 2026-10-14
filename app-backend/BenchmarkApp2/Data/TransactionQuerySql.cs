@@ -27,7 +27,11 @@ public sealed record TransactionFilter(
     DateTime? DateTo = null,
     decimal? MinAmount = null,
     decimal? MaxAmount = null,
-    string? Search = null);
+    string? Search = null)
+{
+    /// <summary>True when no filter is applied, so every transaction is selected (EX-02).</summary>
+    public bool IsEmpty => this == new TransactionFilter();
+}
 
 /// <summary>The column to sort transactions on and its direction (TL-02).</summary>
 public sealed record TransactionSort(TransactionListSortColumn Column, bool Descending);

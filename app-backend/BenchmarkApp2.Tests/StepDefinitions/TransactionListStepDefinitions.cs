@@ -1,12 +1,11 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using BenchmarkApp2.Tests.Support;
 using Reqnroll;
 
 namespace BenchmarkApp2.Tests.StepDefinitions;
 
 [Binding]
-public sealed partial class TransactionListStepDefinitions(
+public sealed class TransactionListStepDefinitions(
     TransactionApiFixture api,
     FileSeeder fileSeeder,
     TransactionSeeder transactionSeeder,
@@ -126,8 +125,7 @@ public sealed partial class TransactionListStepDefinitions(
     /// <summary>Sends the query after replacing each "{file name}" with the id of that seeded file.</summary>
     private async Task ListTransactionsAsync(string query)
     {
-        var resolved = FileNamePlaceholder().Replace(query, match => fileSeeder.GetFileId(match.Groups[1].Value).ToString());
-        var path = resolved.Length == 0 ? "transactions" : $"transactions?{resolved.TrimStart('&')}";
+        var path = QueryText.ToPath("transactions", query, fileSeeder);
         await state.RecordResponseAsync(await api.SendAsync(HttpMethod.Get, path, sessionCookie: state.SessionCookie));
     }
 
@@ -136,9 +134,6 @@ public sealed partial class TransactionListStepDefinitions(
     private TransactionPageResponse ReadPage() =>
         JsonSerializer.Deserialize<TransactionPageResponse>(state.LastResponseBody, ResponseJson)
         ?? throw new InvalidOperationException("The response holds no page of transactions.");
-
-    [GeneratedRegex(@"\{([^}]+)\}")]
-    private static partial Regex FileNamePlaceholder();
 
     private sealed record TransactionPageResponse(
         List<ListedTransaction> Items, int Page, int PageSize, int TotalCount, int TotalPages, bool HasAnyTransactions);

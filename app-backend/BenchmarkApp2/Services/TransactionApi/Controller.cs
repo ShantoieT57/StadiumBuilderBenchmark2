@@ -28,7 +28,8 @@ public sealed class Controller(
     Corrector corrector,
     TransactionRepository transactionRepository,
     TransactionReviewRepository transactionReviewRepository,
-    TimeProvider timeProvider) : ControllerBase
+    TimeProvider timeProvider,
+    AppSettings settings) : ControllerBase
 {
     private const string CsvContentType = "text/csv";
     private const string FileNotFoundMessage = "File not found";
@@ -40,6 +41,8 @@ public sealed class Controller(
     private const string InvalidCredentialsMessage = "Invalid email or password";
     private const string InvalidFileNameMessage = "Invalid file name";
     private const string NotCsvFileMessage = "Only .csv files can be uploaded. Please choose a .csv file.";
+    private const string NoMatchesToExportMessage = "No transactions match the current filters, so there is nothing to export.";
+    private const string NoTransactionsToExportMessage = "There are no transactions yet, so there is nothing to export.";
 
     /// <summary>Why a transaction that is no longer Imported was not changed, naming its status (AP-04, RJ-05).</summary>
     private static string AlreadyReviewedMessage(string status) => $"This transaction has already been {status.ToLowerInvariant()}.";
@@ -298,6 +301,44 @@ public sealed class Controller(
 
         var transactions = await transactionRepository.ListAsync(query.Filter, query.Sort, query.Offset, query.PageSize, cancellationToken);
         return query.ToTransactionPage(transactions);
+    }
+
+    /// <summary>
+    /// Approvers only (TL-05). Exports every transaction that matches the list's filters, in the
+    /// list's order for the same sort, as a CSV attachment (EX-01..EX-04, EX-06). The filter and
+    /// sort are read and checked exactly as for <see cref="ListTransactions"/>. When nothing
+    /// matches there is nothing to export (409, EX-05). The export date in the file name, and each
+    /// Last Changed On, are in the time zone of <see cref="AppSettings.ExportTimeZone"/>.
+    /// </summary>
+    [Authorize(Roles = nameof(UserRole.Approver))]
+    public override async Task<IActionResult> ExportTransactions(
+        TransactionSortColumn? sortBy = null,
+        SortDirection? sortDirection = null,
+        TransactionStatus? status = null,
+        Guid? fileId = null,
+        string? dateFrom = null,
+        string? dateTo = null,
+        decimal? minAmount = null,
+        decimal? maxAmount = null,
+        string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        var filter = TransactionCriteria.CreateFilter(status, fileId, dateFrom, dateTo, minAmount, maxAmount, search, ModelState);
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        var anyMatch = await transactionRepository.FindAnyMatchAsync(filter, cancellationToken);
+        if (anyMatch is null)
+        {
+            return Conflict(new ErrorResponse { Message = filter.IsEmpty ? NoTransactionsToExportMessage : NoMatchesToExportMessage });
+        }
+
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(settings.ExportTimeZone);
+        var exportDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timeProvider.GetUtcNow(), timeZone).DateTime);
+        var rows = transactionRepository.ExportAsync(filter, TransactionCriteria.CreateSort(sortBy, sortDirection), cancellationToken);
+        return new TransactionCsvResult(rows, ExportFileName.Create(filter, anyMatch.FileName, exportDate), timeZone);
     }
 
     /// <summary>Both roles (TL-06).</summary>

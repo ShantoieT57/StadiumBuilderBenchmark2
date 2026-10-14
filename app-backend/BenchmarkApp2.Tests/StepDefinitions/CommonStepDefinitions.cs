@@ -82,6 +82,34 @@ public sealed class CommonStepDefinitions(
         Assert.Contains(fields, name => string.Equals(name, field, StringComparison.OrdinalIgnoreCase));
     }
 
+    [Then("the response content type is {string}")]
+    public void ThenTheResponseContentTypeIs(string contentType)
+    {
+        Assert.Equal(contentType, state.LastResponse.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Then("the response content type is {string} with the charset {string}")]
+    public void ThenTheResponseContentTypeIsWithTheCharset(string contentType, string charset)
+    {
+        var header = state.LastResponse.Content.Headers.ContentType;
+        Assert.Equal((contentType, charset), (header?.MediaType, header?.CharSet));
+    }
+
+    /// <summary>
+    /// The name is read from <c>filename*</c> (RFC 6266 / RFC 5987), which carries any name exactly;
+    /// a plain <c>filename</c> must be present too, for clients that do not read <c>filename*</c>.
+    /// </summary>
+    [Then("the download is an attachment named {string}")]
+    [Then("the export is an attachment named {string}")]
+    public void ThenTheDownloadIsAnAttachmentNamed(string fileName)
+    {
+        var disposition = state.LastResponse.Content.Headers.ContentDisposition;
+        Assert.NotNull(disposition);
+        Assert.Equal("attachment", disposition.DispositionType);
+        Assert.Equal(fileName, disposition.FileNameStar);
+        Assert.False(string.IsNullOrEmpty(disposition.FileName));
+    }
+
     [Then("the response describes the user {string} with email {string} and role {string}")]
     public void ThenTheResponseDescribesTheUser(string name, string email, string role)
     {

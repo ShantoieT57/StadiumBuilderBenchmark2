@@ -48,12 +48,6 @@ public sealed class DownloadFileStepDefinitions(TransactionApiFixture api, FileS
     [When("I download a file that does not exist")]
     public Task WhenIDownloadAFileThatDoesNotExist() => DownloadAsync(Guid.NewGuid());
 
-    [Then("the response content type is {string}")]
-    public void ThenTheResponseContentTypeIs(string contentType)
-    {
-        Assert.Equal(contentType, state.LastResponse.Content.Headers.ContentType?.MediaType);
-    }
-
     [Then("the downloaded bytes are exactly the bytes of the sample file {string}")]
     public void ThenTheDownloadedBytesAreExactlyTheBytesOfTheSampleFile(string fileName)
     {
@@ -64,20 +58,6 @@ public sealed class DownloadFileStepDefinitions(TransactionApiFixture api, FileS
     public void ThenTheDownloadedBytesAreExactlyTheBytesThatWereUploaded()
     {
         Assert.Equal(state.LastUploadedFileContent, _downloadedBytes);
-    }
-
-    /// <summary>
-    /// The name is read from <c>filename*</c> (RFC 6266 / RFC 5987), which carries any name exactly;
-    /// a plain <c>filename</c> must be present too, for clients that do not read <c>filename*</c>.
-    /// </summary>
-    [Then("the download is an attachment named {string}")]
-    public void ThenTheDownloadIsAnAttachmentNamed(string fileName)
-    {
-        var disposition = state.LastResponse.Content.Headers.ContentDisposition;
-        Assert.NotNull(disposition);
-        Assert.Equal("attachment", disposition.DispositionType);
-        Assert.Equal(fileName, disposition.FileNameStar);
-        Assert.False(string.IsNullOrEmpty(disposition.FileName));
     }
 
     private async Task DownloadAsync(Guid fileId)
