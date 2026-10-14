@@ -367,8 +367,26 @@ Feature: Checking a corrected file again
     And the file processor has processed the waiting files
     When I re-check the last uploaded file correcting row 1 without a currency
     Then the response status code is 400
-    And the validation errors include the field "corrections[0].currency"
+    And the validation errors are for exactly the fields "corrections[0].currency"
+    And the validation errors for the field "corrections[0].currency" are "The Currency field is required."
     And the last uploaded file has failed because of invalid rows with the reason "File has 1 invalid row"
+
+  Scenario Outline: Validation errors on the request body are keyed by camelCase JSON paths
+    Given I have uploaded a file named "broken.csv" with the rows:
+      | Reference | TransactionDate  | AccountNumber | Description | Amount | TransactionType | Currency |
+      | TXN-1     | 2026/04/15 08:12 | 1001          | Bad amount  | ten    | C               | ZAR      |
+    And the file processor has processed the waiting files
+    When I re-check the last uploaded file with the request body '<body>'
+    Then the response status code is 400
+    And the validation errors are for exactly the fields "<fields>"
+    And the last uploaded file has failed because of invalid rows with the reason "File has 1 invalid row"
+
+    Examples:
+      | case                    | body                                                                                                                                                                                  | fields                   |
+      | missing columns         | {"corrections": [{"id": "{row 1}", "reference": "TXN-1", "transactionDate": "2026/04/15 08:12", "accountNumber": "1001", "description": "Fixed", "amount": "10"}]}                    | corrections[0].transactionType, corrections[0].currency |
+      | amount sent as a number | {"corrections": [{"id": "{row 1}", "reference": "TXN-1", "transactionDate": "2026/04/15 08:12", "accountNumber": "1001", "description": "Fixed", "amount": 10, "transactionType": "C", "currency": "ZAR"}]} | corrections[0].amount, $ |
+      | row id not a UUID       | {"corrections": [{"id": "row-1", "reference": "TXN-1", "transactionDate": "2026/04/15 08:12", "accountNumber": "1001", "description": "Fixed", "amount": "10", "transactionType": "C", "currency": "ZAR"}]} | corrections[0].id, $     |
+      | corrections not a list  | {"corrections": {"id": "{row 1}"}}                                                                                                                                                     | corrections, $           |
 
   Scenario: An unknown file is not found
     When I re-check a file that does not exist

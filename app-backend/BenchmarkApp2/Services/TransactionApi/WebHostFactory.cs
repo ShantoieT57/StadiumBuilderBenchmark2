@@ -62,6 +62,7 @@ public static class WebHostFactory
         services.AddSingleton<FileProcessor.Corrector>();
 
         services.AddControllers().AddApplicationPart(typeof(Controller).Assembly);
+        services.AddCamelCaseValidationErrorKeys();
         services
             .AddAuthentication(SessionAuthenticationHandler.SchemeName)
             .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(SessionAuthenticationHandler.SchemeName, null);

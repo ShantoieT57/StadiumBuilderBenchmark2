@@ -67,6 +67,11 @@ public sealed class RecheckFileStepDefinitions(
         ]);
     }
 
+    /// <summary>Each <c>{row N}</c> in the body is replaced by the id of the file's row N.</summary>
+    [When("I re-check the last uploaded file with the request body {string}")]
+    public Task WhenIRecheckTheLastUploadedFileWithTheRequestBody(string body) =>
+        corrections.RecheckWithBodyAsync(state.LastUploadedFileId, body);
+
     [When("I re-check the last uploaded file twice at the same time with the corrections:")]
     public async Task WhenIRecheckTheLastUploadedFileTwiceAtTheSameTime(DataTable rows)
     {

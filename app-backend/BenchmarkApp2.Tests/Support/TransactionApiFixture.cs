@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text;
 using BenchmarkApp2.Services.TransactionApi;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
@@ -32,6 +33,10 @@ public sealed class TransactionApiFixture(ManualTimeProvider clock) : IAsyncDisp
 
     public Task<HttpResponseMessage> SendAsync(HttpMethod method, string relativePath, object? jsonBody = null, string? sessionCookie = null) =>
         SendContentAsync(method, relativePath, jsonBody is null ? null : JsonContent.Create(jsonBody), sessionCookie);
+
+    /// <summary>Sends exactly this text as an <c>application/json</c> body, whether or not it is valid JSON.</summary>
+    public Task<HttpResponseMessage> SendJsonTextAsync(HttpMethod method, string relativePath, string jsonText, string? sessionCookie = null) =>
+        SendContentAsync(method, relativePath, new StringContent(jsonText, Encoding.UTF8, "application/json"), sessionCookie);
 
     public async Task<HttpResponseMessage> SendContentAsync(HttpMethod method, string relativePath, HttpContent? content, string? sessionCookie = null)
     {

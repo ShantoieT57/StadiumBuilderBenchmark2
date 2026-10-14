@@ -13,11 +13,11 @@ public static class RejectionReason
     public const int MaxLength = 500;
 
     /// <summary>
-    /// The key validation errors about the reason are reported under. It is the model property's
-    /// name, the same key model validation uses when the reason is missing, so every problem with
-    /// the reason is reported under one key.
+    /// The key validation errors about the reason are reported under: the reason's JSON name, the
+    /// same key model validation uses when the reason is missing (see <see cref="ValidationErrorKeys"/>),
+    /// so every problem with the reason is reported under one key.
     /// </summary>
-    public const string Field = nameof(RejectTransactionRequest.Reason);
+    public const string Field = "reason";
 
     /// <summary>
     /// The trimmed reason, or null when it is missing, only whitespace or too long, in which case

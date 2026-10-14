@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace BenchmarkApp2.Tests.Support;
 
 /// <summary>Approves and rejects transactions as a signed-in person.</summary>
@@ -13,11 +11,7 @@ public sealed class ReviewClient(TransactionApiFixture api, ApiScenarioState sta
 
     /// <summary>Sends a reject request with exactly this JSON body.</summary>
     public Task<HttpResponseMessage> SendRejectWithBodyAsync(Guid transactionId, string jsonBody, string? sessionCookie) =>
-        api.SendContentAsync(
-            HttpMethod.Post,
-            $"transactions/{transactionId}/reject",
-            new StringContent(jsonBody, Encoding.UTF8, "application/json"),
-            sessionCookie);
+        api.SendJsonTextAsync(HttpMethod.Post, $"transactions/{transactionId}/reject", jsonBody, sessionCookie);
 
     /// <summary>Approves the transaction as the scenario's signed-in person and records the response.</summary>
     public async Task ApproveAsync(Guid transactionId) =>

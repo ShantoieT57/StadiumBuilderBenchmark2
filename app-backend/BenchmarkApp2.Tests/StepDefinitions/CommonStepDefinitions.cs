@@ -74,12 +74,25 @@ public sealed class CommonStepDefinitions(
         Assert.Equal(reason, GetResponseProperty("reason"));
     }
 
+    /// <summary>Keys are compared exactly, including case: they must be the names the client sends.</summary>
     [Then("the validation errors include the field {string}")]
     public void ThenTheValidationErrorsIncludeTheField(string field)
     {
-        using var json = JsonDocument.Parse(state.LastResponseBody);
-        var fields = json.RootElement.GetProperty("errors").EnumerateObject().Select(error => error.Name);
-        Assert.Contains(fields, name => string.Equals(name, field, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(field, ValidationErrors.Read(state.LastResponseBody).Keys);
+    }
+
+    /// <summary>The fields are listed comma-separated; their order does not matter.</summary>
+    [Then("the validation errors are for exactly the fields {string}")]
+    public void ThenTheValidationErrorsAreForExactlyTheFields(string fields)
+    {
+        var expected = fields.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Order(StringComparer.Ordinal);
+        Assert.Equal(expected, ValidationErrors.Read(state.LastResponseBody).Keys.Order(StringComparer.Ordinal));
+    }
+
+    [Then("the validation errors for the field {string} are {string}")]
+    public void ThenTheValidationErrorsForTheFieldAre(string field, string message)
+    {
+        Assert.Equal([message], ValidationErrors.Read(state.LastResponseBody)[field]);
     }
 
     [Then("the response content type is {string}")]

@@ -12,6 +12,12 @@ public sealed class SignInStepDefinitions(TransactionApiFixture api, ApiScenario
     [When("I sign in without supplying an email address or password")]
     public Task WhenISignInWithoutCredentials() => SignInAsync(new { });
 
+    [When("I sign in with the request body {string}")]
+    public async Task WhenISignInWithTheRequestBody(string body)
+    {
+        await state.RecordResponseAsync(await api.SendJsonTextAsync(HttpMethod.Post, "auth/sign-in", body));
+    }
+
     [Then("an HttpOnly session cookie is issued")]
     public void ThenAnHttpOnlySessionCookieIsIssued()
     {

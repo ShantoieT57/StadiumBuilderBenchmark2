@@ -71,4 +71,24 @@ public sealed class CorrectionClient(TransactionApiFixture api, ApiScenarioState
 
     public async Task SaveAsync(Guid fileId, IEnumerable<object> rows) =>
         await state.RecordResponseAsync(await api.SendAsync(HttpMethod.Patch, $"files/{fileId}/invalid-rows", new { rows }, state.SessionCookie));
+
+    /// <summary>Re-checks the file with exactly this JSON body; see <see cref="WithRowIdsAsync"/>.</summary>
+    public async Task RecheckWithBodyAsync(Guid fileId, string jsonBody) =>
+        await state.RecordResponseAsync(await api.SendJsonTextAsync(
+            HttpMethod.Post, $"files/{fileId}/recheck", await WithRowIdsAsync(fileId, jsonBody), state.SessionCookie));
+
+    /// <summary>Saves corrections to the file with exactly this JSON body; see <see cref="WithRowIdsAsync"/>.</summary>
+    public async Task SaveWithBodyAsync(Guid fileId, string jsonBody) =>
+        await state.RecordResponseAsync(await api.SendJsonTextAsync(
+            HttpMethod.Patch, $"files/{fileId}/invalid-rows", await WithRowIdsAsync(fileId, jsonBody), state.SessionCookie));
+
+    /// <summary>The body with each <c>{row N}</c> replaced by the id of the file's row N.</summary>
+    private async Task<string> WithRowIdsAsync(Guid fileId, string jsonBody)
+    {
+        foreach (var (rowNumber, id) in await GetRowIdsAsync(fileId))
+        {
+            jsonBody = jsonBody.Replace($"{{row {rowNumber}}}", id.ToString(), StringComparison.Ordinal);
+        }
+        return jsonBody;
+    }
 }

@@ -24,6 +24,11 @@ public sealed class SaveCorrectionsStepDefinitions(ApiScenarioState state, Corre
     [When("I save no corrections to the last uploaded file")]
     public Task WhenISaveNoCorrectionsToTheLastUploadedFile() => corrections.SaveAsync(state.LastUploadedFileId, []);
 
+    /// <summary>Each <c>{row N}</c> in the body is replaced by the id of the file's row N.</summary>
+    [When("I save the corrections to the last uploaded file with the request body {string}")]
+    public Task WhenISaveTheCorrectionsToTheLastUploadedFileWithTheRequestBody(string body) =>
+        corrections.SaveWithBodyAsync(state.LastUploadedFileId, body);
+
     [When("I save the corrections to a file that does not exist")]
     public Task WhenISaveTheCorrectionsToAFileThatDoesNotExist() =>
         corrections.SaveAsync(Guid.NewGuid(), [CorrectionClient.ValidCorrection(Guid.NewGuid())]);

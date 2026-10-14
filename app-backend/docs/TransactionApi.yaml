@@ -11,6 +11,9 @@ info:
     401, the `reason` in the response says why, so the caller can tell an expired
     session or a sign-in elsewhere from never having signed in. When a signed-in
     person's role does not allow an endpoint, the request is refused with 403.
+    A request with invalid input is refused with 400 and a `ValidationProblem`, whose
+    `errors` are keyed by the camelCase names the client sends, exactly as in the JSON
+    (see `ValidationProblem` for the convention).
 servers:
   - url: http://localhost:5100/api
 tags:
@@ -1691,7 +1694,19 @@ components:
           description: How many transactions are still Imported, over every file that is not cancelled.
     ValidationProblem:
       type: object
-      description: RFC 7807 validation problem details, with the failing fields under `errors`.
+      description: >-
+        RFC 7807 validation problem details, with the failing fields under `errors`.
+        Every key in `errors` is the name the client sends, in the same camelCase as
+        the request, so a key can be matched to the input it is about without any
+        mapping: a query or route parameter by its name (e.g. `pageSize`, `minAmount`,
+        `fileId`); a multipart form field by its name (e.g. `file`, `kind`); and a member
+        of a JSON request body by its path within the body, using the members' JSON names
+        joined with `.` and array items indexed from 0 (e.g. `email`, `reason`, `rows`,
+        `corrections[0].amount`). This also applies when a body member's JSON value cannot
+        be read, such as a number sent where text is expected. A problem with the body as a
+        whole (a body that is missing, empty, not valid JSON or not a JSON object) is
+        reported under the key `$`, the JSON path of the whole body. The messages are meant
+        for people and may name a field differently; only the keys are stable.
       properties:
         type:
           type: string

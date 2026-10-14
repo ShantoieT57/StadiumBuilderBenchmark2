@@ -76,7 +76,7 @@ Feature: Rejecting a transaction
     And I am signed in as "approver@digiata.com"
     When I reject the transaction "TXN-001" with the request body '<body>'
     Then the response status code is 400
-    And the validation errors include the field "reason"
+    And the validation errors are for exactly the fields "reason"
     And the transaction "TXN-001" is stored as "Imported", last changed by "System"
 
     Examples:
@@ -94,6 +94,32 @@ Feature: Rejecting a transaction
     And I am signed in as "approver@digiata.com"
     When I reject the transaction "TXN-001" with the request body ""
     Then the response status code is 400
+    And the validation errors are for exactly the fields "$"
+    And the transaction "TXN-001" is stored as "Imported", last changed by "System"
+
+  Scenario Outline: Validation errors about the reason are keyed by its camelCase name, with their messages unchanged
+    Given these transactions exist:
+      | reference |
+      | TXN-001   |
+    And I am signed in as "approver@digiata.com"
+    When I reject the transaction "TXN-001" with the request body '<body>'
+    Then the response status code is 400
+    And the validation errors are for exactly the fields "reason"
+    And the validation errors for the field "reason" are "<message>"
+
+    Examples:
+      | case                          | body             | message                                       |
+      | missing                       | {}               | The Reason field is required.                 |
+      | only spaces                   | {"reason": "  "} | A reason is required to reject a transaction. |
+
+  Scenario: A reason of the wrong type is reported under its camelCase name
+    Given these transactions exist:
+      | reference |
+      | TXN-001   |
+    And I am signed in as "approver@digiata.com"
+    When I reject the transaction "TXN-001" with the request body '{"reason": 42}'
+    Then the response status code is 400
+    And the validation errors are for exactly the fields "reason, $"
     And the transaction "TXN-001" is stored as "Imported", last changed by "System"
 
   Scenario Outline: The reason can be up to 500 characters, counted after trimming

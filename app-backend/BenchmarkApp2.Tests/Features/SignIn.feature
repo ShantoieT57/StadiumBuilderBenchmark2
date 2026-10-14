@@ -49,6 +49,33 @@ Feature: Sign in
     And the validation errors include the field "password"
     And no session cookie is issued
 
+  Scenario: Validation errors are keyed by the camelCase names of the request body
+    When I sign in with the request body '{"email": "", "password": ""}'
+    Then the response status code is 400
+    And the validation errors are for exactly the fields "email, password"
+    And the validation errors for the field "email" are "The Email field is required."
+    And the validation errors for the field "password" are "The Password field is required."
+    And no session cookie is issued
+
+  Scenario: A value of the wrong type is reported under the member's camelCase name
+    When I sign in with the request body '{"email": 42, "password": "Test123"}'
+    Then the response status code is 400
+    And the validation errors are for exactly the fields "email, $"
+    And no session cookie is issued
+
+  Scenario Outline: A request body that cannot be read as a whole is reported under "$"
+    When I sign in with the request body '<body>'
+    Then the response status code is 400
+    And the validation errors are for exactly the fields "$"
+    And no session cookie is issued
+
+    Examples:
+      | case                | body                                                    |
+      | malformed JSON      | {"email": "fileimporter@digiata.com", "password": "Te   |
+      | not JSON at all     | email=fileimporter@digiata.com                          |
+      | not a JSON object   | ["fileimporter@digiata.com", "Test123"]                 |
+      | empty               |                                                         |
+
   Scenario: Signing in in a second browser signs the person out of the first
     Given I am signed in as "fileimporter@digiata.com" in browser "A"
     When I sign in as "fileimporter@digiata.com" in browser "B"

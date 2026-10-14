@@ -108,7 +108,35 @@ Feature: Saving corrections without checking the file again
     And the file processor has processed the waiting files
     When I save no corrections to the last uploaded file
     Then the response status code is 400
-    And the validation errors include the field "rows"
+    And the validation errors are for exactly the fields "rows"
+
+  Scenario Outline: Validation errors on the request body are keyed by camelCase JSON paths
+    Given I have uploaded a file named "broken.csv" with the rows:
+      | Reference | TransactionDate  | AccountNumber | Description | Amount | TransactionType | Currency |
+      | TXN-1     | 2026/04/15 08:12 | 1001          | Bad amount  | ten    | C               | ZAR      |
+    And the file processor has processed the waiting files
+    When I save the corrections to the last uploaded file with the request body '<body>'
+    Then the response status code is 400
+    And the validation errors are for exactly the fields "<fields>"
+    And the rows kept for corrections of the last uploaded file are:
+      | Row | Reference | TransactionDate  | AccountNumber | Description | Amount | TransactionType | Currency | Columns | ExtraValues | Reasons        |
+      | 1   | TXN-1     | 2026/04/15 08:12 | 1001          | Bad amount  | ten    | C               | ZAR      | 7       |             | Invalid Amount |
+
+    Examples:
+      | case                    | body                                                                                                                                                                               | fields             |
+      | missing rows            | {}                                                                                                                                                                                 | rows               |
+      | missing amount          | {"rows": [{"id": "{row 1}", "reference": "TXN-1", "transactionDate": "2026/04/15 08:12", "accountNumber": "1001", "description": "Fixed", "transactionType": "C", "currency": "ZAR"}]} | rows[0].amount     |
+      | amount sent as a number | {"rows": [{"id": "{row 1}", "reference": "TXN-1", "transactionDate": "2026/04/15 08:12", "accountNumber": "1001", "description": "Fixed", "amount": 10, "transactionType": "C", "currency": "ZAR"}]} | rows[0].amount, $ |
+      | malformed JSON          | {"rows": [{"id": "{row 1}", "amount": "10"                                                                                                                                         | $                  |
+
+  Scenario: A missing column keeps its validation message
+    Given I have uploaded a file named "broken.csv" with the rows:
+      | Reference | TransactionDate  | AccountNumber | Description | Amount | TransactionType | Currency |
+      | TXN-1     | 2026/04/15 08:12 | 1001          | Bad amount  | ten    | C               | ZAR      |
+    And the file processor has processed the waiting files
+    When I save the corrections to the last uploaded file with the request body '{"rows": [{"id": "{row 1}", "reference": "TXN-1", "transactionDate": "2026/04/15 08:12", "accountNumber": "1001", "description": "Fixed", "transactionType": "C", "currency": "ZAR"}]}'
+    Then the response status code is 400
+    And the validation errors for the field "rows[0].amount" are "The Amount field is required."
 
   Scenario: An unknown file is not found
     When I save the corrections to a file that does not exist
