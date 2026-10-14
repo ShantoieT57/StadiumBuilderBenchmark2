@@ -1,0 +1,73 @@
+using System.Net.Http.Json;
+using BenchmarkApp2.Services.TransactionApi;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.TestHost;
+using Npgsql;
+
+namespace BenchmarkApp2.Tests.Support;
+
+/// <summary>
+/// Hosts the TransactionApi in memory (TestServer) against the test database for one scenario.
+/// The host is built on first use so a scenario can choose the environment beforehand.
+/// </summary>
+public sealed class TransactionApiFixture : IAsyncDisposable
+{
+    /// <summary>Includes a path so the runtime split into host URL and path base is exercised.</summary>
+    private const string TransactionApiUri = "http://localhost:5100/api";
+
+    private NpgsqlDataSource? _dataSource;
+    private WebApplication? _app;
+    private HttpClient? _client;
+
+    public string EnvironmentName { get; set; } = "Test";
+
+    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string relativePath, object? jsonBody = null, string? sessionCookie = null)
+    {
+        var client = await GetClientAsync();
+        using var request = new HttpRequestMessage(method, relativePath);
+        if (jsonBody is not null)
+        {
+            request.Content = JsonContent.Create(jsonBody);
+        }
+        if (sessionCookie is not null)
+        {
+            request.Headers.Add("Cookie", $"{SessionCookie.Name}={sessionCookie}");
+        }
+        return await client.SendAsync(request);
+    }
+
+    private async Task<HttpClient> GetClientAsync()
+    {
+        if (_client is not null)
+        {
+            return _client;
+        }
+
+        var settings = new AppSettings
+        {
+            TransactionApiUri = TransactionApiUri,
+            DatabaseConnectionString = TestDatabase.ConnectionString,
+        };
+        _dataSource = NpgsqlDataSource.Create(settings.DatabaseConnectionString);
+        _app = WebHostFactory.Create(settings, EnvironmentName, _dataSource, builder => builder.WebHost.UseTestServer());
+        await _app.StartAsync();
+
+        _client = _app.GetTestClient();
+        _client.BaseAddress = new Uri(TransactionApiUri.TrimEnd('/') + "/");
+        return _client;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _client?.Dispose();
+        if (_app is not null)
+        {
+            await _app.StopAsync();
+            await _app.DisposeAsync();
+        }
+        if (_dataSource is not null)
+        {
+            await _dataSource.DisposeAsync();
+        }
+    }
+}

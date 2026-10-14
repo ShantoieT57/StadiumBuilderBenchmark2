@@ -8,17 +8,25 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.89" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="NSwag.MSBuild" Version="14.7.1">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.3.0" />
     <PackageReference Include="Twenty57.Builder.ApplicationRuntime.Sdk" Version="0.0.1-pre.1" />
   </ItemGroup>
 
   <ItemGroup>
     <NSwagSpec Include="$(MSBuildThisFileDirectory)NSwag\*.nswag" />
     <OpenApiSpecGenerated Include="$(MSBuildThisFileDirectory)Services\**\*.g.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\docs\TransactionApi.yaml" LogicalName="OpenApi/TransactionApi.yaml" />
+    <EmbeddedResource Include="Database\Migrations\*.sql" LogicalName="Migrations/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <Target Name="OpenApiSpecGenerate" BeforeTargets="BeforeBuild" Condition="'@(NSwagSpec)' != ''">

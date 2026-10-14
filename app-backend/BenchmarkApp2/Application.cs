@@ -1,18 +1,22 @@
+using BenchmarkApp2.Database;
+
 namespace BenchmarkApp2;
 
-internal sealed class Application(ILogger<Application> logger) : IHostedService
+internal sealed class Application(
+    Migrator migrator,
+    Services.TransactionApi.Service transactionApi,
+    ILogger<Application> logger) : IHostedService
 {
-    private readonly ILogger<Application> _logger = logger;
-
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Application started.");
-        return Task.CompletedTask;
+        await migrator.MigrateAsync(cancellationToken);
+        await transactionApi.StartAsync(cancellationToken);
+        logger.LogInformation("Application started.");
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Application stopping.");
-        return Task.CompletedTask;
+        logger.LogInformation("Application stopping.");
+        await transactionApi.StopAsync(cancellationToken);
     }
 }

@@ -1,0 +1,35 @@
+{
+  "runtime": "Net100",
+  "defaultVariables": null,
+  "documentGenerator": {
+    "fromDocument": {
+      "json": "../../docs/TransactionApi.yaml",
+      "newLineBehavior": "Auto"
+    }
+  },
+  "codeGenerators": {
+    "openApiToCSharpController": {
+      "controllerStyle": "Abstract",
+      "controllerTarget": "AspNetCore",
+      "useActionResultType": true,
+      "useCancellationToken": true,
+      "generateModelValidationAttributes": true,
+      "routeNamingStrategy": "OperationId",
+      "namespace": "BenchmarkApp2.Services.TransactionApi",
+      "modelsNamespace": "BenchmarkApp2.Services.TransactionApi",
+      "additionalNamespaceUsages": [],
+      "additionalContractNamespaceUsages": [],
+      "generateOptionalParameters": true,
+      "generateNullableReferenceTypes": true,
+      "requiredPropertiesMustBeDefined": true,
+      "classStyle": "Poco",
+      "jsonLibrary": "SystemTextJson",
+      "dateType": "System.DateTimeOffset",
+      "dateTimeType": "System.DateTimeOffset",
+      "anyType": "object",
+      "arrayType": "System.Collections.Generic.ICollection",
+      "dictionaryType": "System.Collections.Generic.IDictionary",
+      "output": "../Services/TransactionApi/Controller.g.cs"
+    }
+  }
+}

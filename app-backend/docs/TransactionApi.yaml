@@ -1,0 +1,148 @@
+openapi: 3.0.3
+info:
+  title: TransactionApi
+  version: 1.0.0
+  description: >-
+    REST API for the Transaction Import and Approval app. Every endpoint requires
+    a signed-in session (sent as the HttpOnly `txn_session` cookie) unless it is
+    explicitly marked as anonymous.
+servers:
+  - url: http://localhost:5100/api
+tags:
+  - name: Authentication
+    description: Signing in, identifying the signed-in person, and signing out.
+paths:
+  /auth/sign-in:
+    post:
+      tags: [Authentication]
+      operationId: SignIn
+      summary: Sign in with email address and password (anonymous).
+      description: >-
+        Starts a server-side session and returns it as the HttpOnly `txn_session`
+        cookie. A wrong email address and a wrong password both return the same
+        401 response, so the caller can never tell which of the two was wrong.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+      responses:
+        '200':
+          description: Signed in. The session cookie is set and the signed-in person is returned.
+          headers:
+            Set-Cookie:
+              description: The HttpOnly `txn_session` session cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '400':
+          description: The email address or password is missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+        '401':
+          description: The email address or password is wrong ("Invalid email or password").
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/me:
+    get:
+      tags: [Authentication]
+      operationId: GetCurrentUser
+      summary: Get the person who is signed in with the current session.
+      responses:
+        '200':
+          description: The signed-in person.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          description: There is no valid session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/sign-out:
+    post:
+      tags: [Authentication]
+      operationId: SignOut
+      summary: Sign out, ending the current session (anonymous, idempotent).
+      description: >-
+        Ends the session identified by the `txn_session` cookie, if any, and
+        clears the cookie. Afterwards the cookie no longer authenticates.
+        Always succeeds, even when there is no valid session.
+      security: []
+      responses:
+        '204':
+          description: Signed out. The session cookie is cleared.
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: txn_session
+  schemas:
+    UserRole:
+      type: string
+      enum: [Importer, Approver]
+    SignInRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          minLength: 1
+          example: fileimporter@digiata.com
+        password:
+          type: string
+          minLength: 1
+          format: password
+          example: Test123
+    CurrentUser:
+      type: object
+      required: [name, email, role]
+      properties:
+        name:
+          type: string
+          example: File Importer
+        email:
+          type: string
+          example: fileimporter@digiata.com
+        role:
+          $ref: '#/components/schemas/UserRole'
+    ErrorResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          example: Invalid email or password
+    ValidationProblem:
+      type: object
+      description: RFC 7807 validation problem details, with the failing fields under `errors`.
+      properties:
+        type:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        status:
+          type: integer
+          nullable: true
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+security:
+  - sessionCookie: []
