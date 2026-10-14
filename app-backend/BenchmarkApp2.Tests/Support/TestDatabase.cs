@@ -110,6 +110,13 @@ public static class TestDatabase
         Assert.Equal(1, await connection.ExecuteAsync("UPDATE files SET cancelled_at = @now WHERE id = @fileId", new { fileId, now }));
     }
 
+    /// <summary>Removes a file's original content, as cancelling a file does (FX-04).</summary>
+    public static async Task DiscardFileContentAsync(Guid fileId)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        Assert.Equal(1, await connection.ExecuteAsync("UPDATE files SET content = NULL WHERE id = @fileId", new { fileId }));
+    }
+
     /// <summary>
     /// Stores a file directly in the state it would have after processing, uploaded by the seeded
     /// importer, and returns its id. Files are received in the order they are inserted.
@@ -130,7 +137,7 @@ public static class TestDatabase
         {
             file.FileName,
             file.Status,
-            Content = Guid.NewGuid().ToByteArray(),
+            Content = file.Content ?? Guid.NewGuid().ToByteArray(),
             UploadedAt = now,
             file.RowCount,
             file.FailureKind,
@@ -198,7 +205,10 @@ public static class TestDatabase
     }
 }
 
-/// <summary>A file stored directly by a scenario, in the state it would have after processing.</summary>
+/// <summary>
+/// A file stored directly by a scenario, in the state it would have after processing. Without
+/// <see cref="Content"/>, the file gets unique content of its own.
+/// </summary>
 public sealed record SeedFile(
     string FileName,
     string Status,
@@ -206,7 +216,8 @@ public sealed record SeedFile(
     string? FailureReason,
     DateTimeOffset? LastProcessedAt,
     int? RowCount,
-    bool IsCancelled);
+    bool IsCancelled,
+    byte[]? Content = null);
 
 public sealed class ProcessedFile
 {

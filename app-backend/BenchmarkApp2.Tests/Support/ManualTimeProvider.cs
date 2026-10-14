@@ -11,4 +11,6 @@ public sealed class ManualTimeProvider : TimeProvider
     public override DateTimeOffset GetUtcNow() => _utcNow;
 
     public void Advance(TimeSpan duration) => _utcNow += duration;
+
+    public void SetUtcNow(DateTimeOffset utcNow) => _utcNow = utcNow;
 }

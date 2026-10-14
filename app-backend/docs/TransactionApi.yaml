@@ -17,7 +17,7 @@ tags:
   - name: Authentication
     description: Signing in, identifying the signed-in person, and signing out.
   - name: Files
-    description: Uploading transaction files (importers only) and listing files.
+    description: Uploading transaction files (importers only), listing files, and a file's details, original content and invalid rows.
   - name: Dashboard
     description: The figures shown above the dashboard's file list.
 paths:
@@ -281,8 +281,120 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /files/{fileId}:
+    get:
+      tags: [Files]
+      operationId: GetFile
+      summary: Get a file's details and processing history (FD-01, FD-03, FD-04, FD-06, FD-07).
+      description: >-
+        Returns everything the file's detail screen shows, including its processing history, in one
+        response. Available to every signed-in person, for active and cancelled files alike.
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: The file's details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileDetails'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/FileNotFound'
+  /files/{fileId}/content:
+    get:
+      tags: [Files]
+      operationId: DownloadFile
+      summary: Download the original file exactly as it was uploaded (FD-05).
+      description: >-
+        Returns the exact bytes that were uploaded, unchanged (including any byte-order mark and the
+        original line endings), as `text/csv` with no charset, since the file's encoding is never
+        assumed. The `Content-Disposition` header is `attachment` and carries the original file name
+        both as `filename` and, encoded as UTF-8, as `filename*` (RFC 6266 / RFC 5987), so names
+        with spaces or non-ASCII characters survive. Available to every signed-in person. Once a
+        file has been cancelled, the app's copy of the original is discarded (FX-04) and the
+        download is refused with 410 Gone, so a caller can tell a file that no longer has its
+        original from a file that never existed (404).
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: The original file.
+          headers:
+            Content-Disposition:
+              description: '`attachment` with the original file name, e.g. `attachment; filename=transactions_2026-04-15.csv; filename*=UTF-8''''transactions_2026-04-15.csv`.'
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/FileNotFound'
+        '410':
+          description: >-
+            The original file is no longer available because the file has been cancelled and its
+            content discarded (FX-04).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /files/{fileId}/invalid-rows:
+    get:
+      tags: [Files]
+      operationId: ListInvalidRows
+      summary: List the invalid rows of a file waiting for corrections (FC-01, importers only).
+      description: >-
+        Lists only the invalid rows, in file order, each with a stable row id (used to correct the
+        row), its row number (counting transaction rows from 1, not counting the header), every
+        column value exactly as it was in the file and every reason it failed (FP-04). `totalCount`
+        is how many invalid rows remain. Only a file that is Failed because of invalid rows and is
+        not cancelled is waiting for corrections; for any other file the request is refused with
+        409, so a caller never mistakes "nothing to correct" for "no invalid rows left".
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: The invalid rows still to be corrected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRowList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/FileNotFound'
+        '409':
+          description: >-
+            The file is not waiting for corrections: it is not Failed because of invalid rows, or it
+            has been cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
+  parameters:
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      description: The file's id.
+      schema:
+        type: string
+        format: uuid
   responses:
+    FileNotFound:
+      description: No file has this id ("File not found").
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     Forbidden:
       description: >-
         The signed-in person's role does not allow this request. The `message`
@@ -507,6 +619,184 @@ components:
         uploadedAt:
           type: string
           format: date-time
+    ProcessingStage:
+      type: string
+      description: A stage of processing a file, in the order they run.
+      enum: [Receive, DuplicateCheck, ReadRows, ConvertTypes, CheckRows, WaitForCorrections, Load]
+    ProcessingStageEntry:
+      type: object
+      required: [stage, startedAt, finishedAt]
+      properties:
+        stage:
+          $ref: '#/components/schemas/ProcessingStage'
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the stage finished; null while it is still under way (e.g. WaitForCorrections).
+    FileDetails:
+      type: object
+      description: >-
+        A file's details (FD-01, FD-03, FD-06, FD-07) and processing history (FD-04).
+      required:
+        - id
+        - fileName
+        - kind
+        - status
+        - failureKind
+        - failureReason
+        - uploadedBy
+        - uploadedAt
+        - lastProcessedAt
+        - isCancelled
+        - cancelledAt
+        - rowCount
+        - loadedCount
+        - skippedExistingCount
+        - ignoredEmptyReferenceCount
+        - transactions
+        - isFullyReviewed
+        - areTransactionsAvailable
+        - canDownload
+        - processingHistory
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+          example: transactions_2026-04-15.csv
+        kind:
+          $ref: '#/components/schemas/FileKind'
+        status:
+          $ref: '#/components/schemas/FileStatus'
+        failureKind:
+          description: Why the file failed; null unless the status is Failed (FD-06).
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/FailureKind'
+        failureReason:
+          type: string
+          nullable: true
+          description: The message describing why the file failed; null unless the status is Failed (FD-06).
+        uploadedBy:
+          type: string
+          description: The name of the person who uploaded the file.
+          example: File Importer
+        uploadedAt:
+          type: string
+          format: date-time
+        lastProcessedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When processing of the file last finished; null while it has never been processed.
+        isCancelled:
+          type: boolean
+        cancelledAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the file was cancelled; null unless it is cancelled.
+        rowCount:
+          type: integer
+          format: int32
+          nullable: true
+          description: The number of transaction rows in the file, not counting the header; null until the file has been read.
+        loadedCount:
+          type: integer
+          format: int32
+          nullable: true
+          description: >-
+            How many rows were loaded as transactions (FP-07). The three row counts are null until
+            the file has been loaded (Completed) and then always add up to `rowCount`.
+        skippedExistingCount:
+          type: integer
+          format: int32
+          nullable: true
+          description: How many rows were skipped because their reference already existed (FP-05, FP-07).
+        ignoredEmptyReferenceCount:
+          type: integer
+          format: int32
+          nullable: true
+          description: How many rows were ignored because their reference was empty (FP-07).
+        transactions:
+          description: >-
+            How many of the file's transactions are Imported, Approved and Rejected (FD-01). All zero
+            while nothing has been loaded, for a failed file, and for a cancelled file (whose
+            transactions are removed, FX-03).
+          allOf:
+            - $ref: '#/components/schemas/TransactionStatusCounts'
+        isFullyReviewed:
+          type: boolean
+          description: >-
+            True when the file is Completed, not cancelled, and none of its transactions is still
+            Imported (FD-03). A Completed file with no transactions at all (every row skipped as
+            existing or ignored for an empty reference) is fully reviewed, since nothing from it
+            awaits review.
+        areTransactionsAvailable:
+          type: boolean
+          description: >-
+            False while the file is Uploaded or Processing, when its transactions are not available
+            yet (FD-07); true once processing has finished (Completed or Failed).
+        canDownload:
+          type: boolean
+          description: >-
+            Whether the original file can still be downloaded (FD-05). False once the file is
+            cancelled, because its copy of the original is discarded (FX-04).
+        processingHistory:
+          type: array
+          description: Each stage the file has been through, in the order they ran (FD-04).
+          items:
+            $ref: '#/components/schemas/ProcessingStageEntry'
+    InvalidRow:
+      type: object
+      description: An invalid row with every column value exactly as it was in the file.
+      required: [id, rowNumber, reference, transactionDate, accountNumber, description, amount, transactionType, currency, reasons]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The row's stable id, used to correct it.
+        rowNumber:
+          type: integer
+          format: int32
+          description: The row's position among the transaction rows, from 1, not counting the header.
+        reference:
+          type: string
+        transactionDate:
+          type: string
+        accountNumber:
+          type: string
+        description:
+          type: string
+        amount:
+          type: string
+        transactionType:
+          type: string
+        currency:
+          type: string
+        reasons:
+          type: array
+          description: Every reason the row failed (FP-04).
+          items:
+            type: string
+          example: [Invalid Transaction Type, Missing Account Number]
+    InvalidRowList:
+      type: object
+      required: [totalCount, rows]
+      properties:
+        totalCount:
+          type: integer
+          format: int32
+          description: How many invalid rows remain.
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvalidRow'
     ValidationProblem:
       type: object
       description: RFC 7807 validation problem details, with the failing fields under `errors`.

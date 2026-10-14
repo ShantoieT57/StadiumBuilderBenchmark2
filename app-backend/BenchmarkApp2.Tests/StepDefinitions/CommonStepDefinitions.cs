@@ -45,6 +45,12 @@ public sealed class CommonStepDefinitions(
         clock.Advance(TimeSpan.FromMinutes(minutes));
     }
 
+    [Given("the current time is {string}")]
+    public void GivenTheCurrentTimeIs(string time)
+    {
+        clock.SetUtcNow(FileSeeder.ParseDateTime(time)!.Value);
+    }
+
     [Then("the response status code is {int}")]
     public void ThenTheResponseStatusCodeIs(int statusCode)
     {

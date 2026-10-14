@@ -21,8 +21,13 @@ namespace BenchmarkApp2.Services.TransactionApi;
 public sealed class Controller(
     SessionManager sessionManager,
     FileReceiver fileReceiver,
-    DashboardRepository dashboardRepository) : ControllerBase
+    DashboardRepository dashboardRepository,
+    FileDetailsRepository fileDetailsRepository) : ControllerBase
 {
+    private const string CsvContentType = "text/csv";
+    private const string FileNotFoundMessage = "File not found";
+    private const string FileContentDiscardedMessage = "The original file is no longer available because the file has been cancelled.";
+    private const string NotWaitingForCorrectionsMessage = "This file is not waiting for corrections.";
     private const string InvalidCredentialsMessage = "Invalid email or password";
     private const string InvalidFileNameMessage = "Invalid file name";
     private const string NotCsvFileMessage = "Only .csv files can be uploaded. Please choose a .csv file.";
@@ -147,6 +152,60 @@ public sealed class Controller(
         var files = await dashboardRepository.ListFilesAsync(query.ToCriteria(), cancellationToken);
         return query.ToFilePage(files);
     }
+
+    /// <summary>Both roles, for active and cancelled files. The processing history is part of the details.</summary>
+    public override async Task<ActionResult<FileDetails>> GetFile(Guid fileId, CancellationToken cancellationToken = default)
+    {
+        var file = await fileDetailsRepository.GetDetailsAsync(fileId, cancellationToken);
+        if (file is null)
+        {
+            return FileNotFound();
+        }
+
+        var history = await fileDetailsRepository.GetProcessingHistoryAsync(fileId, cancellationToken);
+        return FileDetailsMapper.ToFileDetails(file, history);
+    }
+
+    /// <summary>
+    /// Both roles. Returns the exact uploaded bytes as text/csv with no charset, since the file's
+    /// encoding is never assumed. <see cref="ControllerBase.File(byte[], string, string)"/> sends
+    /// the name both as <c>filename</c> and, UTF-8 encoded, as <c>filename*</c> (RFC 6266). Once
+    /// the original has been discarded by cancelling the file, the download is gone (410).
+    /// </summary>
+    public override async Task<IActionResult> DownloadFile(Guid fileId, CancellationToken cancellationToken = default)
+    {
+        var file = await fileDetailsRepository.GetContentAsync(fileId, cancellationToken);
+        if (file is null)
+        {
+            return FileNotFound();
+        }
+        if (!FileDetailsMapper.CanDownload(file.Content is not null, file.CancelledAt))
+        {
+            return StatusCode(StatusCodes.Status410Gone, new ErrorResponse { Message = FileContentDiscardedMessage });
+        }
+
+        return File(file.Content!, CsvContentType, file.FileName);
+    }
+
+    /// <summary>Importers only, for a file waiting for corrections (FC-01).</summary>
+    [Authorize(Roles = nameof(UserRole.Importer))]
+    public override async Task<ActionResult<InvalidRowList>> ListInvalidRows(Guid fileId, CancellationToken cancellationToken = default)
+    {
+        var file = await fileDetailsRepository.GetCorrectionStateAsync(fileId, cancellationToken);
+        if (file is null)
+        {
+            return FileNotFound();
+        }
+        if (!FileDetailsMapper.IsWaitingForCorrections(file))
+        {
+            return Conflict(new ErrorResponse { Message = NotWaitingForCorrectionsMessage });
+        }
+
+        var rows = await fileDetailsRepository.GetInvalidRowsAsync(fileId, cancellationToken);
+        return FileDetailsMapper.ToInvalidRowList(rows);
+    }
+
+    private NotFoundObjectResult FileNotFound() => NotFound(new ErrorResponse { Message = FileNotFoundMessage });
 
     private static CurrentUser ToCurrentUser(string name, string email, string role) => new()
     {

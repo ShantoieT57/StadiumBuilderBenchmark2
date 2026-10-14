@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace BenchmarkApp2.Tests.Support;
 
-/// <summary>Uploads files as the signed-in person and remembers the ids of the accepted files.</summary>
+/// <summary>Uploads files as the signed-in person and remembers the ids and bytes of the accepted files.</summary>
 public sealed class FileUploader(TransactionApiFixture api, ApiScenarioState state)
 {
     private const string UploadPath = "files";
@@ -17,5 +17,6 @@ public sealed class FileUploader(TransactionApiFixture api, ApiScenarioState sta
 
         using var json = JsonDocument.Parse(state.LastResponseBody);
         state.UploadedFileIds.Add(json.RootElement.GetProperty("id").GetGuid());
+        state.UploadedFileContents.Add(content);
     }
 }

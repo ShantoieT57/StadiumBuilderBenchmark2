@@ -32,6 +32,12 @@ public sealed class ApiScenarioState
     public Guid LastUploadedFileId =>
         UploadedFileIds.Count > 0 ? UploadedFileIds[^1] : throw new InvalidOperationException("No file has been uploaded in this scenario.");
 
+    /// <summary>The exact bytes of the files uploaded in this scenario, in the order they were uploaded.</summary>
+    public List<byte[]> UploadedFileContents { get; } = [];
+
+    public byte[] LastUploadedFileContent =>
+        UploadedFileContents.Count > 0 ? UploadedFileContents[^1] : throw new InvalidOperationException("No file has been uploaded in this scenario.");
+
     /// <summary>The id of an uploaded file by its 1-based position in the order of uploads.</summary>
     public Guid GetUploadedFileId(int position) => UploadedFileIds[position - 1];
 
