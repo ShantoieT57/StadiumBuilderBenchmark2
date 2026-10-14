@@ -6,9 +6,10 @@ namespace BenchmarkApp2.Services.TransactionApi;
 /// <summary>
 /// Binds the generated <see cref="FileParameter"/> from the multipart form part named after the
 /// parameter, keeping the file name exactly as the client sent it. Apply it to the parameter with
-/// <c>[ModelBinder(typeof(FileParameterModelBinder))]</c>. A part whose file name is empty is not
-/// treated as a file by ASP.NET Core but as a plain form value; it is bound as a file with an empty
-/// name, so the empty name is refused like any other invalid file name.
+/// <c>[ModelBinder(typeof(FileParameterModelBinder))]</c>. A part sent with an empty file name is a
+/// file with an empty name (see <see cref="UploadFormReader"/>). A plain form field of that name,
+/// sent with no file name at all, is bound as a file with an empty name too, so either is refused
+/// like any other invalid file name.
 /// </summary>
 public sealed class FileParameterModelBinder : IModelBinder
 {

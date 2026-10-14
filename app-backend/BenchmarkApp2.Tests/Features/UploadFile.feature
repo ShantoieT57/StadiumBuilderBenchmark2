@@ -2,7 +2,9 @@ Feature: Upload a file
   An importer uploads a transaction file and chooses what kind of file it is (UP-02). Only .csv
   files with a valid name are accepted (UP-03, UP-04). An upload only hands the file over (UP-07):
   the exact original file is kept with the status Uploaded, and it is checked and loaded later.
-  Only importers may upload (AC-03).
+  Only importers may upload (AC-03). The request must be multipart/form-data with exactly one file
+  in the field "file"; a part sent with an empty file name is a file without a name. A malformed or
+  oversized request is always refused with a JSON message, never with a server error.
 
   Scenario: An importer uploads the supplied sample file
     Given I am signed in as "fileimporter@digiata.com"
@@ -124,4 +126,108 @@ Feature: Upload a file
     When I upload the sample file "transactions_2026-04-15.csv" as the kind "BankTransactions"
     Then the response status code is 401
     And the response reason is "NotSignedIn"
+    And no file has been stored
+
+  Scenario: A large file without a name is refused as an invalid file name
+    Given I am signed in as "fileimporter@digiata.com"
+    When I upload a file named "" of 5242880 bytes
+    Then the response status code is 400
+    And the response message is "Invalid file name"
+    And no file has been stored
+
+  Scenario: A file without a name of exactly the maximum upload size is refused as an invalid file name
+    Given the maximum upload size is 1024 bytes
+    And I am signed in as "fileimporter@digiata.com"
+    When I upload a file named "" of 1024 bytes
+    Then the response status code is 400
+    And the response message is "Invalid file name"
+    And no file has been stored
+
+  Scenario: A file without a name that is larger than the maximum upload size is refused as too large
+    Given the maximum upload size is 1024 bytes
+    And I am signed in as "fileimporter@digiata.com"
+    When I upload a file named "" of 1025 bytes
+    Then the response status code is 413
+    And the response message is "The file is too large. Files can be up to 1 KB."
+    And no file has been stored
+
+  Scenario: A file without a name that is larger than the default maximum upload size is refused as too large
+    Given I am signed in as "fileimporter@digiata.com"
+    When I upload a file named "" of 10485761 bytes
+    Then the response status code is 413
+    And the response message is "The file is too large. Files can be up to 10 MB."
+    And no file has been stored
+
+  Scenario: A plain form field named file is refused as a file without a name
+    Given I am signed in as "fileimporter@digiata.com"
+    When I send an upload request with a plain form field "file" of 100 bytes
+    Then the response status code is 400
+    And the response message is "Invalid file name"
+    And no file has been stored
+
+  Scenario Outline: Two files in one request are refused
+    Given I am signed in as "fileimporter@digiata.com"
+    When I upload the files "first.csv" in the field "<first field>" and "second.csv" in the field "<second field>" in one request
+    Then the response status code is 400
+    And the response message is "Upload one file at a time."
+    And no file has been stored
+
+    Examples:
+      | first field | second field |
+      | file        | file         |
+      | file        | attachment   |
+
+  Scenario: Two files are refused even when one of them has no name
+    Given I am signed in as "fileimporter@digiata.com"
+    When I upload the files "first.csv" in the field "file" and "" in the field "file" in one request
+    Then the response status code is 400
+    And the response message is "Upload one file at a time."
+    And no file has been stored
+
+  Scenario: A file sent under another field name is refused as missing
+    Given I am signed in as "fileimporter@digiata.com"
+    When I upload the file "transactions.csv" in the field "attachment"
+    Then the response status code is 400
+    And the validation errors include the field "file"
+    And no file has been stored
+
+  Scenario Outline: An upload request that is not multipart form data is refused
+    Given I am signed in as "fileimporter@digiata.com"
+    When I send an upload request with the content type "<content type>"
+    Then the response status code is 415
+    And the response message is "Files must be uploaded as multipart/form-data."
+    And no file has been stored
+
+    Examples:
+      | content type                      |
+      | application/json                  |
+      | application/x-www-form-urlencoded |
+      | text/csv                          |
+
+  Scenario: An upload request without a content type is refused
+    Given I am signed in as "fileimporter@digiata.com"
+    When I send an upload request without a content type
+    Then the response status code is 415
+    And the response message is "Files must be uploaded as multipart/form-data."
+    And no file has been stored
+
+  Scenario: An upload request without a multipart boundary is refused
+    Given I am signed in as "fileimporter@digiata.com"
+    When I send an upload request whose multipart content type has no boundary
+    Then the response status code is 400
+    And the response message is "The upload request could not be read. Please send the file as multipart/form-data."
+    And no file has been stored
+
+  Scenario: A truncated upload request is refused
+    Given I am signed in as "fileimporter@digiata.com"
+    When I send an upload request whose body ends before its closing boundary
+    Then the response status code is 400
+    And the response message is "The upload request could not be read. Please send the file as multipart/form-data."
+    And no file has been stored
+
+  Scenario: An upload request with an unreadable part header is refused
+    Given I am signed in as "fileimporter@digiata.com"
+    When I send an upload request whose part header has no colon
+    Then the response status code is 400
+    And the response message is "The upload request could not be read. Please send the file as multipart/form-data."
     And no file has been stored

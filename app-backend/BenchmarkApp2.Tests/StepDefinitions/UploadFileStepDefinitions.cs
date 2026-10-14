@@ -14,6 +14,12 @@ public sealed class UploadFileStepDefinitions(TransactionApiFixture api, ApiScen
     /// <summary>Database timestamps keep microseconds, so times are compared to the nearest millisecond.</summary>
     private static readonly TimeSpan TimeTolerance = TimeSpan.FromMilliseconds(1);
 
+    private const string RawBoundary = "upload-boundary";
+    private const string RawMultipartContentType = $"multipart/form-data; boundary={RawBoundary}";
+    private const string FilePartHead =
+        $"--{RawBoundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"transactions.csv\"\r\nContent-Type: text/csv\r\n\r\n";
+    private const string CsvBody = "Reference,TransactionDate,AccountNumber,Description,Amount,TransactionType,Currency\n";
+
     private byte[] _uploadedContent = [];
 
     [Given("the maximum upload size is {int} bytes")]
@@ -32,26 +38,69 @@ public sealed class UploadFileStepDefinitions(TransactionApiFixture api, ApiScen
 
     [When("I upload a file named {string} as the kind {string}")]
     public Task WhenIUploadAFileNamedAsTheKind(string fileName, string kind) =>
-        UploadAsync(CreateCsvContent(100), fileName, kind);
+        UploadAsync(TestFiles.CreateCsvContent(100), fileName, kind);
 
     [When("I upload a file named {string}")]
     public Task WhenIUploadAFileNamed(string fileName) =>
-        UploadAsync(CreateCsvContent(100), fileName, kind: null);
+        UploadAsync(TestFiles.CreateCsvContent(100), fileName, kind: null);
+
+    [When("I upload a file named {string} of {int} bytes")]
+    public Task WhenIUploadAFileNamedOfBytes(string fileName, int length) =>
+        UploadAsync(TestFiles.CreateCsvContent(length), fileName, kind: null);
 
     [When("I upload a .csv file whose name is {int} characters long")]
     public Task WhenIUploadACsvFileWhoseNameIsCharactersLong(int length) =>
-        UploadAsync(CreateCsvContent(100), new string('t', length - ".csv".Length) + ".csv", kind: null);
+        UploadAsync(TestFiles.CreateCsvContent(100), new string('t', length - ".csv".Length) + ".csv", kind: null);
 
     [When("I upload a .csv file of {int} bytes")]
     public Task WhenIUploadACsvFileOfBytes(int length) =>
-        UploadAsync(CreateCsvContent(length), "transactions.csv", kind: null);
+        UploadAsync(TestFiles.CreateCsvContent(length), "transactions.csv", kind: null);
 
     [When("I send an upload request without a file")]
-    public async Task WhenISendAnUploadRequestWithoutAFile()
+    public Task WhenISendAnUploadRequestWithoutAFile() =>
+        SendAsync(new MultipartFormDataContent { { new StringContent("BankTransactions"), "kind" } });
+
+    [When("I send an upload request with a plain form field {string} of {int} bytes")]
+    public Task WhenISendAnUploadRequestWithAPlainFormField(string fieldName, int length) =>
+        SendAsync(new MultipartFormDataContent { { new ByteArrayContent(TestFiles.CreateCsvContent(length)), fieldName } });
+
+    [When("I upload the files {string} in the field {string} and {string} in the field {string} in one request")]
+    public Task WhenIUploadTwoFilesInOneRequest(string firstFileName, string firstField, string secondFileName, string secondField) =>
+        SendAsync(new MultipartFormDataContent
+        {
+            TestFiles.CreateFilePart(TestFiles.CreateCsvContent(100), firstFileName, firstField),
+            TestFiles.CreateFilePart(TestFiles.CreateCsvContent(100), secondFileName, secondField),
+        });
+
+    [When("I upload the file {string} in the field {string}")]
+    public Task WhenIUploadTheFileInTheField(string fileName, string fieldName) =>
+        SendAsync(new MultipartFormDataContent { TestFiles.CreateFilePart(TestFiles.CreateCsvContent(100), fileName, fieldName) });
+
+    [When("I send an upload request with the content type {string}")]
+    public Task WhenISendAnUploadRequestWithTheContentType(string contentType)
     {
-        var form = new MultipartFormDataContent { { new StringContent("BankTransactions"), "kind" } };
-        await state.RecordResponseAsync(await api.SendContentAsync(HttpMethod.Post, UploadPath, form, state.SessionCookie));
+        var content = new ByteArrayContent(TestFiles.CreateCsvContent(100));
+        content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+        return SendAsync(content);
     }
+
+    [When("I send an upload request without a content type")]
+    public Task WhenISendAnUploadRequestWithoutAContentType() =>
+        SendAsync(new ByteArrayContent(TestFiles.CreateCsvContent(100)));
+
+    [When("I send an upload request whose multipart content type has no boundary")]
+    public Task WhenISendAnUploadRequestWithoutABoundary() =>
+        SendRawMultipartAsync("multipart/form-data", $"{FilePartHead}{CsvBody}\r\n--{RawBoundary}--\r\n");
+
+    [When("I send an upload request whose body ends before its closing boundary")]
+    public Task WhenISendATruncatedUploadRequest() =>
+        SendRawMultipartAsync(RawMultipartContentType, $"{FilePartHead}{CsvBody}");
+
+    [When("I send an upload request whose part header has no colon")]
+    public Task WhenISendAnUploadRequestWithAnUnreadablePartHeader() =>
+        SendRawMultipartAsync(
+            RawMultipartContentType,
+            $"--{RawBoundary}\r\nContent-Disposition form-data; name=\"file\"; filename=\"transactions.csv\"\r\n\r\n{CsvBody}\r\n--{RawBoundary}--\r\n");
 
     [Then("the response describes the uploaded file {string} of kind {string} with status {string}")]
     public void ThenTheResponseDescribesTheUploadedFile(string fileName, string kind, string status)
@@ -118,20 +167,19 @@ public sealed class UploadFileStepDefinitions(TransactionApiFixture api, ApiScen
     private async Task UploadAsync(byte[] content, string fileName, string? kind)
     {
         _uploadedContent = content;
-        var form = TestFiles.CreateUploadForm(content, fileName, kind);
-        await state.RecordResponseAsync(await api.SendContentAsync(HttpMethod.Post, UploadPath, form, state.SessionCookie));
+        await SendAsync(TestFiles.CreateUploadForm(content, fileName, kind));
+    }
+
+    private async Task SendAsync(HttpContent content) =>
+        await state.RecordResponseAsync(await api.SendContentAsync(HttpMethod.Post, UploadPath, content, state.SessionCookie));
+
+    /// <summary>Sends exactly this text as the body, with exactly this Content-Type header.</summary>
+    private Task SendRawMultipartAsync(string contentType, string body)
+    {
+        var content = new ByteArrayContent(Encoding.ASCII.GetBytes(body));
+        content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+        return SendAsync(content);
     }
 
     private static async Task<StoredFile> GetStoredFileAsync() => Assert.Single(await TestDatabase.GetStoredFilesAsync());
-
-    /// <summary>A .csv file of exactly the given length: a header row padded with transaction rows.</summary>
-    private static byte[] CreateCsvContent(int length)
-    {
-        var builder = new StringBuilder("Reference,TransactionDate,AccountNumber,Description,Amount,TransactionType,Currency\n");
-        while (builder.Length < length)
-        {
-            builder.Append("TXN-1,2026/04/15 08:12,1001-2034-5567,Test,1,C,ZAR\n");
-        }
-        return Encoding.ASCII.GetBytes(builder.ToString(0, length));
-    }
 }

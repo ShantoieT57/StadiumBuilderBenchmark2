@@ -581,6 +581,28 @@ paths:
         name must not be empty, must be 255 characters or fewer, and must not
         contain `..`, `\`, `/` or `:`. Files larger than the configured maximum
         upload size (10 MB by default) are refused with 413.
+
+
+        The request must be `multipart/form-data` with exactly one file, sent in
+        the form field `file`. A part counts as a file when its
+        `Content-Disposition` has a `filename` (or `filename*`) parameter, even an
+        empty one, so a part sent with `filename=""` is a file without a name
+        and is refused with "Invalid file name" whatever its size up to the
+        maximum upload size. A plain form field named `file` (with no
+        `filename`) is likewise treated as a file without a name.
+
+
+        A refused request never stores anything. The checks are made in this
+        order, and the first one that fails decides the response: (1) not
+        signed in (401) or not an importer (403); (2) the request is not
+        `multipart/form-data` (415); (3) the multipart body cannot be read, e.g.
+        it has no boundary or ends before its closing boundary (400); (4) any
+        part of the request, including a file without a name, is larger than
+        the maximum upload size (413); (5) more than one file is sent (400);
+        (6) no file is sent in the field `file`, e.g. the only file is sent
+        under another field name, or the file kind is unknown (400, validation
+        problem); (7) the file name is invalid (400); (8) the file is not a
+        `.csv` file (400).
       requestBody:
         required: true
         content:
@@ -604,10 +626,16 @@ paths:
                 $ref: '#/components/schemas/UploadedFile'
         '400':
           description: >-
-            The file name is invalid ("Invalid file name"), the file is not a
-            `.csv` file, the file is missing, or the file kind is unknown. A
-            refused file name or file type is described by `message`; a missing
-            file or unknown kind is reported as a validation problem.
+            The multipart body cannot be read ("The upload request could not be
+            read. Please send the file as multipart/form-data."), more than one
+            file is sent ("Upload one file at a time."), the file name is invalid
+            ("Invalid file name", also for a file sent with an empty name), the
+            file is not a `.csv` file ("Only .csv files can be uploaded. Please
+            choose a .csv file."), the file is missing from the field `file`, or
+            the file kind is unknown. An unreadable body, more than one file, a
+            refused file name or a refused file type is described by `message`;
+            a missing file or unknown kind is reported as a validation problem
+            (under `file` or `kind`).
           content:
             application/json:
               schema:
@@ -619,7 +647,21 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '413':
-          description: The file is larger than the maximum upload size.
+          description: >-
+            The file, or any other part of the request (including a file sent
+            with an empty name), is larger than the maximum upload size, or the
+            request body as a whole is larger than the maximum upload size plus
+            64 KB: "The file is too large. Files can be up to 10 MB." (the size
+            named is the configured maximum).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '415':
+          description: >-
+            The request is not `multipart/form-data`, e.g. it is sent as
+            `application/json`, as `application/x-www-form-urlencoded` or without
+            a `Content-Type`: "Files must be uploaded as multipart/form-data."
           content:
             application/json:
               schema:

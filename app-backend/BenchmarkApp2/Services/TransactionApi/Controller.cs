@@ -88,11 +88,12 @@ public sealed class Controller(
     }
 
     /// <summary>
-    /// Importers only. Over-sized files are refused by <see cref="UploadSizeLimitFilter"/> before
-    /// the form is bound.
+    /// Importers only. A request that is not multipart/form-data, cannot be read, has an oversized
+    /// part or more than one file is refused by <see cref="UploadRequestFilter"/> before the form
+    /// is bound.
     /// </summary>
     [Authorize(Roles = nameof(UserRole.Importer))]
-    [TypeFilter(typeof(UploadSizeLimitFilter))]
+    [TypeFilter(typeof(UploadRequestFilter))]
     public override async Task<ActionResult<UploadedFile>> UploadFile(
         [ModelBinder(typeof(FileParameterModelBinder)), BindRequired] FileParameter? file = null,
         [FromForm] FileKind? kind = FileKind.BankTransactions,
