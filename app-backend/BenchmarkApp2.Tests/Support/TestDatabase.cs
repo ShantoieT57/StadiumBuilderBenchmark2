@@ -15,7 +15,7 @@ public static class TestDatabase
     private const string ConnectionStringVariable = "BENCHMARKAPP2_TEST_DATABASE";
 
     private const string DefaultConnectionString =
-        "Host=localhost;Port=5433;Database=benchmark_app_2_tests;Username=postgres;Password=postgres";
+        "Host=127.0.0.1;Port=5433;Database=benchmark_app_2_tests;Username=postgres;Password=postgres";
 
     public static string ConnectionString { get; } =
         Environment.GetEnvironmentVariable(ConnectionStringVariable) ?? DefaultConnectionString;
@@ -40,7 +40,7 @@ public static class TestDatabase
     public static async Task ResetAsync()
     {
         await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.ExecuteAsync("DELETE FROM files; DELETE FROM sessions");
+        await connection.ExecuteAsync("DELETE FROM transactions; DELETE FROM files; DELETE FROM sessions");
     }
 
     /// <summary>
@@ -77,6 +77,133 @@ public static class TestDatabase
         await using var connection = new NpgsqlConnection(ConnectionString);
         return (await connection.QueryAsync<StoredFile>(sql)).ToList();
     }
+
+    /// <summary>A stored file's processing outcome.</summary>
+    public static async Task<ProcessedFile> GetProcessedFileAsync(Guid fileId)
+    {
+        const string sql = """
+            SELECT status, row_count AS RowCount, failure_kind AS FailureKind, failure_reason AS FailureReason,
+                   loaded_count AS LoadedCount, skipped_existing_count AS SkippedExistingCount,
+                   ignored_empty_reference_count AS IgnoredEmptyReferenceCount, last_processed_at AS LastProcessedAt
+            FROM files
+            WHERE id = @fileId
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return await connection.QuerySingleAsync<ProcessedFile>(sql, new { fileId });
+    }
+
+    /// <summary>Puts a file into a status directly, as if a processor had been interrupted.</summary>
+    public static async Task SetFileStatusAsync(Guid fileId, string status)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        Assert.Equal(1, await connection.ExecuteAsync("UPDATE files SET status = @status WHERE id = @fileId", new { fileId, status }));
+    }
+
+    /// <summary>
+    /// Marks a file cancelled and removes its transactions (FX-03), standing in for the cancel action
+    /// until it exists.
+    /// </summary>
+    public static async Task CancelFileAsync(Guid fileId, DateTimeOffset now)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.ExecuteAsync("DELETE FROM transactions WHERE file_id = @fileId", new { fileId });
+        Assert.Equal(1, await connection.ExecuteAsync("UPDATE files SET cancelled_at = @now WHERE id = @fileId", new { fileId, now }));
+    }
+
+    /// <summary>Every loaded transaction, or only those loaded from one file.</summary>
+    public static async Task<IReadOnlyList<StoredTransaction>> GetTransactionsAsync(Guid? fileId = null)
+    {
+        const string sql = """
+            SELECT id, file_id AS FileId, reference, transaction_date AS TransactionDate, account_number AS AccountNumber,
+                   description, amount, transaction_type AS TransactionType, currency, status,
+                   created_by AS CreatedBy, created_at AS CreatedAt, last_changed_by AS LastChangedBy, last_changed_at AS LastChangedAt
+            FROM transactions
+            WHERE @fileId IS NULL OR file_id = @fileId
+            ORDER BY reference
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return (await connection.QueryAsync<StoredTransaction>(sql, new { fileId })).ToList();
+    }
+
+    /// <summary>A file's processing history, in the order the stages ran.</summary>
+    public static async Task<IReadOnlyList<StoredProcessingStage>> GetProcessingStagesAsync(Guid fileId)
+    {
+        const string sql = """
+            SELECT stage, started_at AS StartedAt, finished_at AS FinishedAt
+            FROM file_processing_stages
+            WHERE file_id = @fileId
+            ORDER BY id
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return (await connection.QueryAsync<StoredProcessingStage>(sql, new { fileId })).ToList();
+    }
+
+    /// <summary>The rows kept for a file waiting for corrections, in file order.</summary>
+    public static async Task<IReadOnlyList<StoredFileRow>> GetFileRowsAsync(Guid fileId)
+    {
+        const string sql = """
+            SELECT row_number AS RowNumber, reference, transaction_date AS TransactionDate, account_number AS AccountNumber,
+                   description, amount, transaction_type AS TransactionType, currency,
+                   column_count AS ColumnCount, extra_values AS ExtraValues, reasons
+            FROM file_rows
+            WHERE file_id = @fileId
+            ORDER BY row_number
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return (await connection.QueryAsync<StoredFileRow>(sql, new { fileId })).ToList();
+    }
+}
+
+public sealed class ProcessedFile
+{
+    public string Status { get; init; } = string.Empty;
+    public int? RowCount { get; init; }
+    public string? FailureKind { get; init; }
+    public string? FailureReason { get; init; }
+    public int? LoadedCount { get; init; }
+    public int? SkippedExistingCount { get; init; }
+    public int? IgnoredEmptyReferenceCount { get; init; }
+    public DateTime? LastProcessedAt { get; init; }
+}
+
+public sealed class StoredTransaction
+{
+    public Guid Id { get; init; }
+    public Guid FileId { get; init; }
+    public string Reference { get; init; } = string.Empty;
+    public DateTime TransactionDate { get; init; }
+    public string AccountNumber { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public decimal Amount { get; init; }
+    public string TransactionType { get; init; } = string.Empty;
+    public string Currency { get; init; } = string.Empty;
+    public string Status { get; init; } = string.Empty;
+    public string CreatedBy { get; init; } = string.Empty;
+    public DateTime CreatedAt { get; init; }
+    public string LastChangedBy { get; init; } = string.Empty;
+    public DateTime LastChangedAt { get; init; }
+}
+
+public sealed class StoredProcessingStage
+{
+    public string Stage { get; init; } = string.Empty;
+    public DateTime StartedAt { get; init; }
+    public DateTime? FinishedAt { get; init; }
+}
+
+public sealed class StoredFileRow
+{
+    public int RowNumber { get; init; }
+    public string Reference { get; init; } = string.Empty;
+    public string TransactionDate { get; init; } = string.Empty;
+    public string AccountNumber { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public string Amount { get; init; } = string.Empty;
+    public string TransactionType { get; init; } = string.Empty;
+    public string Currency { get; init; } = string.Empty;
+    public int ColumnCount { get; init; }
+    public string[] ExtraValues { get; init; } = [];
+    public string[] Reasons { get; init; } = [];
 }
 
 public sealed class StoredFile

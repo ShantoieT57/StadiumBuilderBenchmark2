@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using BenchmarkApp2.Services.TransactionApi;
 using BenchmarkApp2.Tests.Support;
@@ -7,7 +8,12 @@ using Reqnroll;
 namespace BenchmarkApp2.Tests.StepDefinitions;
 
 [Binding]
-public sealed class CommonStepDefinitions(TransactionApiFixture api, ApiScenarioState state, ManualTimeProvider clock)
+public sealed class CommonStepDefinitions(
+    TransactionApiFixture api,
+    FileProcessorFixture fileProcessor,
+    FileUploader uploader,
+    ApiScenarioState state,
+    ManualTimeProvider clock)
 {
     private const string SeededPassword = "Test123";
 
@@ -31,6 +37,7 @@ public sealed class CommonStepDefinitions(TransactionApiFixture api, ApiScenario
     public Task WhenIRequestTheCurrentUserFromBrowser(string browser) =>
         RequestCurrentUserAsync(state.GetBrowserSessionCookie(browser));
 
+    [Given("{int} minutes pass")]
     [When("{int} minutes pass")]
     public void WhenMinutesPass(int minutes)
     {
@@ -79,6 +86,102 @@ public sealed class CommonStepDefinitions(TransactionApiFixture api, ApiScenario
     [Then("the session in browser {string} has ended with the reason {string}")]
     public Task ThenTheSessionInBrowserHasEndedWithTheReason(string browser, string endReason) =>
         AssertSessionEndReasonAsync(state.GetBrowserSessionCookie(browser), endReason);
+
+    [Given("I have uploaded the sample file {string}")]
+    [When("I upload the sample file {string}")]
+    public Task GivenIHaveUploadedTheSampleFile(string fileName) =>
+        uploader.UploadAndRememberAsync(TestFiles.ReadSampleFile(fileName), fileName);
+
+    [Given("I have uploaded the sample file {string} named {string}")]
+    public Task GivenIHaveUploadedTheSampleFileNamed(string sampleFileName, string fileName) =>
+        uploader.UploadAndRememberAsync(TestFiles.ReadSampleFile(sampleFileName), fileName);
+
+    [Given("I have uploaded a file named {string} with the content:")]
+    public Task GivenIHaveUploadedAFileNamedWithTheContent(string fileName, string content) =>
+        uploader.UploadAndRememberAsync(Encoding.UTF8.GetBytes(content), fileName);
+
+    [Given("I have uploaded a file named {string} with the rows:")]
+    public Task GivenIHaveUploadedAFileNamedWithTheRows(string fileName, DataTable rows) =>
+        uploader.UploadAndRememberAsync(TestFiles.ToCsv(rows), fileName);
+
+    [Given("the file processor has processed the waiting files")]
+    [When("the file processor processes the waiting files")]
+    public Task WhenTheFileProcessorProcessesTheWaitingFiles() => fileProcessor.ProcessWaitingFilesAsync();
+
+    [Given("uploaded file {int} has been left with the status {string}")]
+    public Task GivenUploadedFileHasBeenLeftWithTheStatus(int position, string status) =>
+        TestDatabase.SetFileStatusAsync(state.GetUploadedFileId(position), status);
+
+    [Then("the last uploaded file has the status {string}")]
+    public async Task ThenTheLastUploadedFileHasTheStatus(string status)
+    {
+        Assert.Equal(status, (await GetLastUploadedFileAsync()).Status);
+    }
+
+    [Then("uploaded file {int} has the status {string}")]
+    public async Task ThenUploadedFileHasTheStatus(int position, string status)
+    {
+        Assert.Equal(status, (await TestDatabase.GetProcessedFileAsync(state.GetUploadedFileId(position))).Status);
+    }
+
+    [Then("the last uploaded file has {int} rows")]
+    public async Task ThenTheLastUploadedFileHasRows(int rowCount)
+    {
+        Assert.Equal(rowCount, (await GetLastUploadedFileAsync()).RowCount);
+    }
+
+    [Then("the last uploaded file has {int} rows loaded, {int} skipped as existing and {int} ignored for an empty reference")]
+    public async Task ThenTheLastUploadedFileHasRowsLoadedSkippedAndIgnored(int loaded, int skippedExisting, int ignoredEmptyReference)
+    {
+        var file = await GetLastUploadedFileAsync();
+        Assert.Equal(loaded, file.LoadedCount);
+        Assert.Equal(skippedExisting, file.SkippedExistingCount);
+        Assert.Equal(ignoredEmptyReference, file.IgnoredEmptyReferenceCount);
+        Assert.Equal(file.RowCount, loaded + skippedExisting + ignoredEmptyReference);
+    }
+
+    [Then("the last uploaded file was last processed at the current time")]
+    public async Task ThenTheLastUploadedFileWasLastProcessedAtTheCurrentTime()
+    {
+        var lastProcessedAt = (await GetLastUploadedFileAsync()).LastProcessedAt;
+        Assert.NotNull(lastProcessedAt);
+        TimeAssert.IsCurrentTime(lastProcessedAt.Value, clock);
+    }
+
+    [Then("the last uploaded file has failed as a duplicate with the reason {string}")]
+    public Task ThenTheLastUploadedFileHasFailedAsADuplicate(string reason) => AssertFailedAsync("Duplicate", reason);
+
+    [Then("the last uploaded file has failed because of invalid rows with the reason {string}")]
+    public Task ThenTheLastUploadedFileHasFailedBecauseOfInvalidRows(string reason) => AssertFailedAsync("InvalidRows", reason);
+
+    [Then("no transactions have been loaded")]
+    public async Task ThenNoTransactionsHaveBeenLoaded()
+    {
+        Assert.Empty(await TestDatabase.GetTransactionsAsync());
+    }
+
+    [Then("{int} transactions have been loaded in total")]
+    public async Task ThenTransactionsHaveBeenLoadedInTotal(int count)
+    {
+        Assert.Equal(count, (await TestDatabase.GetTransactionsAsync()).Count);
+    }
+
+    [Then("the processing history of the last uploaded file lists the stages:")]
+    public async Task ThenTheProcessingHistoryOfTheLastUploadedFileListsTheStages(DataTable stages)
+    {
+        var history = await TestDatabase.GetProcessingStagesAsync(state.LastUploadedFileId);
+        Assert.Equal(stages.Rows.Select(row => row["Stage"]), history.Select(stage => stage.Stage));
+    }
+
+    private async Task AssertFailedAsync(string failureKind, string reason)
+    {
+        var file = await GetLastUploadedFileAsync();
+        Assert.Equal("Failed", file.Status);
+        Assert.Equal(failureKind, file.FailureKind);
+        Assert.Equal(reason, file.FailureReason);
+    }
+
+    private Task<ProcessedFile> GetLastUploadedFileAsync() => TestDatabase.GetProcessedFileAsync(state.LastUploadedFileId);
 
     /// <summary>Signs in with the seeded password and returns the issued session cookie.</summary>
     private async Task<string> SignInAsync(string email)

@@ -21,5 +21,11 @@ public sealed class AppSettings : IAppSettings
 
     /// <summary>The PostgreSQL connection string for the application database.</summary>
     public string DatabaseConnectionString { get; set; } =
-        "Host=localhost;Port=5433;Database=benchmark_app_2;Username=postgres;Password=postgres";
+        "Host=127.0.0.1;Port=5433;Database=benchmark_app_2;Username=postgres;Password=postgres";
+
+    /// <summary>
+    /// How many seconds the file processor waits between checks for uploaded files when it has not
+    /// been woken by an upload.
+    /// </summary>
+    public int FileProcessorPollIntervalSeconds { get; set; } = 10;
 }

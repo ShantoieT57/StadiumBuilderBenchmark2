@@ -16,6 +16,9 @@ public sealed record NewFileRecord(
 public static class FileStatusValue
 {
     public const string Uploaded = "Uploaded";
+    public const string Processing = "Processing";
+    public const string Completed = "Completed";
+    public const string Failed = "Failed";
 }
 
 /// <summary>Database access for the files table.</summary>

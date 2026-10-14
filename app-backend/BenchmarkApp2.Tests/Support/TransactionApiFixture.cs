@@ -65,17 +65,21 @@ public sealed class TransactionApiFixture(ManualTimeProvider clock) : IAsyncDisp
         return _client;
     }
 
+    /// <summary>Stops the host and releases its connections. Safe to call more than once.</summary>
     public async ValueTask DisposeAsync()
     {
         _client?.Dispose();
+        _client = null;
         if (_app is not null)
         {
             await _app.StopAsync();
             await _app.DisposeAsync();
+            _app = null;
         }
         if (_dataSource is not null)
         {
             await _dataSource.DisposeAsync();
+            _dataSource = null;
         }
     }
 }

@@ -5,11 +5,13 @@ namespace BenchmarkApp2;
 internal sealed class Application(
     Migrator migrator,
     Services.TransactionApi.Service transactionApi,
+    Services.FileProcessor.Service fileProcessor,
     ILogger<Application> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         await migrator.MigrateAsync(cancellationToken);
+        await fileProcessor.StartAsync(cancellationToken);
         await transactionApi.StartAsync(cancellationToken);
         logger.LogInformation("Application started.");
     }
@@ -18,5 +20,6 @@ internal sealed class Application(
     {
         logger.LogInformation("Application stopping.");
         await transactionApi.StopAsync(cancellationToken);
+        await fileProcessor.StopAsync(cancellationToken);
     }
 }

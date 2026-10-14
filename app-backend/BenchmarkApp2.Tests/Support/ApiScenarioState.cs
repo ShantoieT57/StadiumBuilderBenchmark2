@@ -26,6 +26,15 @@ public sealed class ApiScenarioState
             ? cookie
             : throw new InvalidOperationException($"Browser \"{browser}\" has no session cookie in this scenario.");
 
+    /// <summary>The ids of the files uploaded in this scenario, in the order they were uploaded.</summary>
+    public List<Guid> UploadedFileIds { get; } = [];
+
+    public Guid LastUploadedFileId =>
+        UploadedFileIds.Count > 0 ? UploadedFileIds[^1] : throw new InvalidOperationException("No file has been uploaded in this scenario.");
+
+    /// <summary>The id of an uploaded file by its 1-based position in the order of uploads.</summary>
+    public Guid GetUploadedFileId(int position) => UploadedFileIds[position - 1];
+
     public async Task RecordResponseAsync(HttpResponseMessage response)
     {
         _lastResponse = response;

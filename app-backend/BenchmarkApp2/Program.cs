@@ -13,8 +13,10 @@ builder.Services.AddSingleton(appSettings);
 // Created on first use, after the runner has applied any setting overrides.
 builder.Services.AddSingleton(services => NpgsqlDataSource.Create(services.GetRequiredService<AppSettings>().DatabaseConnectionString));
 builder.Services.AddSingleton<Migrator>();
+builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddSingleton<BenchmarkApp2.Services.TransactionApi.Service>();
+builder.Services.AddSingleton<BenchmarkApp2.Services.FileProcessor.Service>();
 
 builder.Services.AddHostedService<Application>();
 

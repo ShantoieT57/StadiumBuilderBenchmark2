@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -11,7 +10,6 @@ namespace BenchmarkApp2.Tests.StepDefinitions;
 public sealed class UploadFileStepDefinitions(TransactionApiFixture api, ApiScenarioState state, ManualTimeProvider clock)
 {
     private const string UploadPath = "files";
-    private const string SampleFilesFolder = "TestFiles";
 
     /// <summary>Database timestamps keep microseconds, so times are compared to the nearest millisecond.</summary>
     private static readonly TimeSpan TimeTolerance = TimeSpan.FromMilliseconds(1);
@@ -26,11 +24,11 @@ public sealed class UploadFileStepDefinitions(TransactionApiFixture api, ApiScen
 
     [When("I upload the sample file {string} as the kind {string}")]
     public Task WhenIUploadTheSampleFileAsTheKind(string fileName, string kind) =>
-        UploadAsync(ReadSampleFile(fileName), fileName, kind);
+        UploadAsync(TestFiles.ReadSampleFile(fileName), fileName, kind);
 
     [When("I upload the sample file {string} without choosing a kind")]
     public Task WhenIUploadTheSampleFileWithoutChoosingAKind(string fileName) =>
-        UploadAsync(ReadSampleFile(fileName), fileName, kind: null);
+        UploadAsync(TestFiles.ReadSampleFile(fileName), fileName, kind: null);
 
     [When("I upload a file named {string} as the kind {string}")]
     public Task WhenIUploadAFileNamedAsTheKind(string fileName, string kind) =>
@@ -114,34 +112,17 @@ public sealed class UploadFileStepDefinitions(TransactionApiFixture api, ApiScen
     {
         var storedFile = await GetStoredFileAsync();
         Assert.Equal(email, storedFile.UploadedByEmail);
-        Assert.Equal(clock.GetUtcNow(), new DateTimeOffset(storedFile.UploadedAt, TimeSpan.Zero), TimeTolerance);
+        TimeAssert.IsCurrentTime(storedFile.UploadedAt, clock);
     }
 
     private async Task UploadAsync(byte[] content, string fileName, string? kind)
     {
         _uploadedContent = content;
-
-        var fileContent = new ByteArrayContent(content);
-        fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/csv");
-        fileContent.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
-        {
-            Name = "\"file\"",
-            FileName = $"\"{fileName}\"",
-        };
-
-        var form = new MultipartFormDataContent { fileContent };
-        if (kind is not null)
-        {
-            form.Add(new StringContent(kind), "kind");
-        }
-
+        var form = TestFiles.CreateUploadForm(content, fileName, kind);
         await state.RecordResponseAsync(await api.SendContentAsync(HttpMethod.Post, UploadPath, form, state.SessionCookie));
     }
 
     private static async Task<StoredFile> GetStoredFileAsync() => Assert.Single(await TestDatabase.GetStoredFilesAsync());
-
-    private static byte[] ReadSampleFile(string fileName) =>
-        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, SampleFilesFolder, fileName));
 
     /// <summary>A .csv file of exactly the given length: a header row padded with transaction rows.</summary>
     private static byte[] CreateCsvContent(int length)
