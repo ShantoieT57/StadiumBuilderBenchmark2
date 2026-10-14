@@ -34,8 +34,9 @@ public sealed record CancellationResult(CancellationOutcome Outcome, int Approve
 /// The file's transactions are then locked (<c>FOR UPDATE</c>) before the Approved ones are counted,
 /// and are deleted while still locked, so no approval can slip in between the check and the delete:
 /// an approval committed first is seen by the check, and one that comes later waits and then finds
-/// the transaction gone. Approving and rejecting (cycle 10) should also lock the file row
-/// (<c>FOR SHARE</c> or stronger) and refuse a cancelled file, so they see a cancel consistently.
+/// the transaction gone. Approving and rejecting also lock the file row (<c>FOR SHARE</c>, see
+/// <see cref="TransactionReviewRepository"/>) and refuse a cancelled file, so an approval and a
+/// cancel of the same file never overlap.
 /// </para>
 /// </remarks>
 public sealed class FileCancellationRepository(NpgsqlDataSource dataSource)

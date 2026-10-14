@@ -16,8 +16,10 @@ public sealed class Hooks
     /// explicitly, so nothing a scenario started keeps running into the next scenario.
     /// </summary>
     [AfterScenario]
-    public static async Task StopHostsAsync(TransactionApiFixture api, FileProcessorFixture fileProcessor, SimulatedProcessing processing)
+    public static async Task StopHostsAsync(
+        TransactionApiFixture api, FileProcessorFixture fileProcessor, SimulatedProcessing processing, HeldDatabaseLock heldLock)
     {
+        await heldLock.DisposeAsync();
         await processing.DisposeAsync();
         await fileProcessor.DisposeAsync();
         await api.DisposeAsync();

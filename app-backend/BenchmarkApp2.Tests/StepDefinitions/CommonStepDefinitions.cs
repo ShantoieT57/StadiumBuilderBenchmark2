@@ -122,6 +122,55 @@ public sealed class CommonStepDefinitions(
     [Given("these transactions exist:")]
     public Task GivenTheseTransactionsExist(DataTable transactions) => transactionSeeder.SeedAsync(transactions);
 
+    [When("I open the transaction {string}")]
+    public async Task WhenIOpenTheTransaction(string reference)
+    {
+        var id = transactionSeeder.GetTransactionId(reference);
+        await state.RecordResponseAsync(await api.SendAsync(HttpMethod.Get, $"transactions/{id}", sessionCookie: state.SessionCookie));
+    }
+
+    /// <summary>
+    /// Checks each named field of the response by its JSON path (e.g. <c>transaction.status</c>); a
+    /// value of "{file name}" is the id of that seeded file.
+    /// </summary>
+    [Then("the transaction details are:")]
+    public void ThenTheTransactionDetailsAre(DataTable fields)
+    {
+        using var json = JsonDocument.Parse(state.LastResponseBody);
+        foreach (var row in fields.Rows)
+        {
+            var field = row["field"];
+            var expected = row["value"];
+            if (expected.StartsWith('{') && expected.EndsWith('}'))
+            {
+                expected = seeder.GetFileId(expected[1..^1]).ToString();
+            }
+            JsonFields.AssertValue(field, expected, JsonFields.Get(json.RootElement, field));
+        }
+    }
+
+    [Then("the file {string} has no transactions left")]
+    public async Task ThenTheFileHasNoTransactionsLeft(string fileName)
+    {
+        Assert.Empty(await TestDatabase.GetTransactionsAsync(seeder.GetFileId(fileName)));
+    }
+
+    [Then("the file {string} still has {int} Imported, {int} Approved and {int} Rejected transactions")]
+    public async Task ThenTheFileStillHasTransactions(string fileName, int imported, int approved, int rejected)
+    {
+        var transactions = await TestDatabase.GetTransactionsAsync(seeder.GetFileId(fileName));
+        Assert.Equal(
+            (imported, approved, rejected),
+            (transactions.Count(t => t.Status == "Imported"), transactions.Count(t => t.Status == "Approved"), transactions.Count(t => t.Status == "Rejected")));
+    }
+
+    [Then("the transaction {string} is stored as {string}, last changed by {string}")]
+    public async Task ThenTheTransactionIsStoredAs(string reference, string status, string lastChangedBy)
+    {
+        var transaction = await TransactionValues.GetByReferenceAsync(reference);
+        Assert.Equal((status, lastChangedBy), (transaction.Status, transaction.LastChangedBy));
+    }
+
     [Given("the file processor has processed the waiting files")]
     [When("the file processor processes the waiting files")]
     public Task WhenTheFileProcessorProcessesTheWaitingFiles() => fileProcessor.ProcessWaitingFilesAsync();

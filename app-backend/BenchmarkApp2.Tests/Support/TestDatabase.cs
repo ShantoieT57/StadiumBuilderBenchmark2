@@ -53,14 +53,38 @@ public static class TestDatabase
     }
 
     /// <summary>Adds another importer, who signs in with the same password as the seeded importer.</summary>
-    public static async Task InsertImporterAsync(string name, string email)
+    public static Task InsertImporterAsync(string name, string email) => InsertUserAsync(name, email, "Importer");
+
+    /// <summary>Adds another approver, who signs in with the same password as the seeded users.</summary>
+    public static Task InsertApproverAsync(string name, string email) => InsertUserAsync(name, email, "Approver");
+
+    private static async Task InsertUserAsync(string name, string email, string role)
     {
         const string sql = $"""
             INSERT INTO users (name, email, role, password_hash)
-            SELECT @name, @email, 'Importer', password_hash FROM users WHERE email = '{SeededImporterEmail}'
+            SELECT @name, @email, @role, password_hash FROM users WHERE email = '{SeededImporterEmail}'
             """;
         await using var connection = new NpgsqlConnection(ConnectionString);
-        Assert.Equal(1, await connection.ExecuteAsync(sql, new { name, email }));
+        Assert.Equal(1, await connection.ExecuteAsync(sql, new { name, email, role }));
+    }
+
+    /// <summary>Whether the file is cancelled, read straight from the database.</summary>
+    public static async Task<bool> IsFileCancelledAsync(Guid fileId)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return await connection.QuerySingleAsync<bool>("SELECT cancelled_at IS NOT NULL FROM files WHERE id = @fileId", new { fileId });
+    }
+
+    /// <summary>How many Approved transactions belong to cancelled files; there must never be any.</summary>
+    public static async Task<int> CountApprovedTransactionsOfCancelledFilesAsync()
+    {
+        const string sql = """
+            SELECT count(*)::int
+            FROM transactions t JOIN files f ON f.id = t.file_id
+            WHERE f.cancelled_at IS NOT NULL AND t.status = 'Approved'
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return await connection.ExecuteScalarAsync<int>(sql);
     }
 
     /// <summary>
@@ -192,7 +216,8 @@ public static class TestDatabase
         const string sql = """
             SELECT id, file_id AS FileId, reference, transaction_date AS TransactionDate, account_number AS AccountNumber,
                    description, amount, transaction_type AS TransactionType, currency, status,
-                   created_by AS CreatedBy, created_at AS CreatedAt, last_changed_by AS LastChangedBy, last_changed_at AS LastChangedAt
+                   created_by AS CreatedBy, created_at AS CreatedAt, last_changed_by AS LastChangedBy, last_changed_at AS LastChangedAt,
+                   rejection_reason AS RejectionReason
             FROM transactions
             WHERE @fileId IS NULL OR file_id = @fileId
             ORDER BY reference
@@ -289,6 +314,7 @@ public sealed class StoredTransaction
     public DateTime CreatedAt { get; init; }
     public string LastChangedBy { get; init; } = string.Empty;
     public DateTime LastChangedAt { get; init; }
+    public string? RejectionReason { get; init; }
 }
 
 public sealed class StoredProcessingStage

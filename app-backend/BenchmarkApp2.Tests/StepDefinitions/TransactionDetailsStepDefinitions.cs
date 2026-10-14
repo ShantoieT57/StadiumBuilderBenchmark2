@@ -8,12 +8,8 @@ namespace BenchmarkApp2.Tests.StepDefinitions;
 public sealed class TransactionDetailsStepDefinitions(
     TransactionApiFixture api,
     FileSeeder fileSeeder,
-    TransactionSeeder transactionSeeder,
     ApiScenarioState state)
 {
-    [When("I open the transaction {string}")]
-    public Task WhenIOpenTheTransaction(string reference) => OpenTransactionAsync(transactionSeeder.GetTransactionId(reference));
-
     [When("I open the transaction with the id {string}")]
     public Task WhenIOpenTheTransactionWithTheId(string id) => OpenTransactionAsync(Guid.Parse(id));
 
@@ -31,23 +27,6 @@ public sealed class TransactionDetailsStepDefinitions(
         var actual = json.RootElement.GetProperty("amount");
         Assert.Equal(JsonValueKind.Number, actual.ValueKind);
         Assert.Equal(amount, actual.GetRawText());
-    }
-
-    /// <summary>Checks each named field; a value of "{file name}" is the id of that seeded file.</summary>
-    [Then("the transaction details are:")]
-    public void ThenTheTransactionDetailsAre(DataTable fields)
-    {
-        using var json = JsonDocument.Parse(state.LastResponseBody);
-        foreach (var row in fields.Rows)
-        {
-            var field = row["field"];
-            var expected = row["value"];
-            if (expected.StartsWith('{') && expected.EndsWith('}'))
-            {
-                expected = fileSeeder.GetFileId(expected[1..^1]).ToString();
-            }
-            JsonFields.AssertValue(field, expected, JsonFields.Get(json.RootElement, field));
-        }
     }
 
     private async Task OpenTransactionAsync(Guid id)

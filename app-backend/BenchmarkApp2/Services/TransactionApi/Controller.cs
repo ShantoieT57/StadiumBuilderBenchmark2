@@ -27,6 +27,7 @@ public sealed class Controller(
     FileCancellationRepository fileCancellationRepository,
     Corrector corrector,
     TransactionRepository transactionRepository,
+    TransactionReviewRepository transactionReviewRepository,
     TimeProvider timeProvider) : ControllerBase
 {
     private const string CsvContentType = "text/csv";
@@ -39,6 +40,9 @@ public sealed class Controller(
     private const string InvalidCredentialsMessage = "Invalid email or password";
     private const string InvalidFileNameMessage = "Invalid file name";
     private const string NotCsvFileMessage = "Only .csv files can be uploaded. Please choose a .csv file.";
+
+    /// <summary>Why a transaction that is no longer Imported was not changed, naming its status (AP-04, RJ-05).</summary>
+    private static string AlreadyReviewedMessage(string status) => $"This transaction has already been {status.ToLowerInvariant()}.";
 
     /// <summary>Why a file with Approved transactions cannot be cancelled (FX-02), with how many there are.</summary>
     private static string HasApprovedTransactionsMessage(int approvedCount) => approvedCount == 1
@@ -300,9 +304,7 @@ public sealed class Controller(
     public override async Task<ActionResult<TransactionDetails>> GetTransaction(Guid transactionId, CancellationToken cancellationToken = default)
     {
         var transaction = await transactionRepository.GetAsync(transactionId, cancellationToken);
-        return transaction is null
-            ? NotFound(new ErrorResponse { Message = TransactionNotFoundMessage })
-            : TransactionMapper.ToDetails(transaction);
+        return transaction is null ? TransactionNotFound() : TransactionMapper.ToDetails(transaction);
     }
 
     /// <summary>Approvers only, for the Transactions menu badge (TL-07).</summary>
@@ -310,7 +312,48 @@ public sealed class Controller(
     public override async Task<ActionResult<ImportedTransactionCount>> GetImportedTransactionCount(CancellationToken cancellationToken = default) =>
         new ImportedTransactionCount { Count = await transactionRepository.CountImportedAsync(cancellationToken) };
 
-    private Guid CurrentUserId =>Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    /// <summary>
+    /// Approvers only. Approves an Imported transaction, recording who and when (AP-02, AP-03), and
+    /// returns its details. One that is no longer Imported is not changed (409, AP-04).
+    /// </summary>
+    [Authorize(Roles = nameof(UserRole.Approver))]
+    public override async Task<ActionResult<TransactionDetails>> ApproveTransaction(Guid transactionId, CancellationToken cancellationToken = default) =>
+        ToReviewResponse(await transactionReviewRepository.ApproveAsync(transactionId, CurrentUserName, timeProvider.GetUtcNow(), cancellationToken));
+
+    /// <summary>
+    /// Approvers only. Rejects an Imported transaction with the trimmed reason, recording who and when
+    /// (RJ-01..RJ-04), and returns its details. The reason is checked first (see
+    /// <see cref="RejectionReason"/>); a transaction that is no longer Imported is not changed (409, RJ-05).
+    /// </summary>
+    [Authorize(Roles = nameof(UserRole.Approver))]
+    public override async Task<ActionResult<TransactionDetails>> RejectTransaction(
+        Guid transactionId, RejectTransactionRequest body, CancellationToken cancellationToken = default)
+    {
+        var reason = RejectionReason.Check(body.Reason, ModelState);
+        if (reason is null)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        return ToReviewResponse(
+            await transactionReviewRepository.RejectAsync(transactionId, reason, CurrentUserName, timeProvider.GetUtcNow(), cancellationToken));
+    }
+
+    private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    private string CurrentUserName => User.FindFirstValue(ClaimTypes.Name)!;
+
+    /// <summary>The changed transaction's details, 404, or 409 naming its current status with its details.</summary>
+    private ActionResult<TransactionDetails> ToReviewResponse(ReviewResult result) => result.Outcome switch
+    {
+        ReviewOutcome.Changed => TransactionMapper.ToDetails(result.Transaction!),
+        ReviewOutcome.AlreadyReviewed => Conflict(new TransactionConflict
+        {
+            Message = AlreadyReviewedMessage(result.Transaction!.Status),
+            Transaction = TransactionMapper.ToDetails(result.Transaction),
+        }),
+        _ => TransactionNotFound(),
+    };
 
     /// <summary>The file's details with its processing history, or 404 when no file has the id.</summary>
     private async Task<ActionResult<FileDetails>> GetFileDetailsAsync(Guid fileId, CancellationToken cancellationToken)
@@ -333,6 +376,8 @@ public sealed class Controller(
     }
 
     private NotFoundObjectResult FileNotFound() => NotFound(new ErrorResponse { Message = FileNotFoundMessage });
+
+    private NotFoundObjectResult TransactionNotFound() => NotFound(new ErrorResponse { Message = TransactionNotFoundMessage });
 
     /// <summary>The response refusing a correction, or null when the correction was made.</summary>
     private ObjectResult? RefuseCorrection(CorrectionOutcome outcome) => outcome switch

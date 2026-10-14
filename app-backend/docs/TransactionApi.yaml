@@ -22,9 +22,10 @@ tags:
     description: The figures shown above the dashboard's file list.
   - name: Transactions
     description: >-
-      Listing, searching and filtering transactions, a transaction's details, and the number of
-      transactions still Imported (approvers only). Transactions of cancelled files are removed
-      when the file is cancelled and never appear here.
+      Listing, searching and filtering transactions, a transaction's details, the number of
+      transactions still Imported (approvers only), and approving or rejecting a transaction
+      (approvers only). Transactions of cancelled files are removed when the file is cancelled and
+      never appear here.
 paths:
   /transactions:
     get:
@@ -203,13 +204,7 @@ paths:
         who last changed it and when, and its rejection reason (only on a Rejected transaction).
         Available to every signed-in person.
       parameters:
-        - name: transactionId
-          in: path
-          required: true
-          description: The transaction's id.
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/TransactionId'
       responses:
         '200':
           description: The transaction's details.
@@ -220,11 +215,106 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '404':
-          description: No transaction has this id ("Transaction not found"), or its file has been cancelled.
+          $ref: '#/components/responses/TransactionNotFound'
+  /transactions/{transactionId}/approve:
+    post:
+      tags: [Transactions]
+      operationId: ApproveTransaction
+      summary: Approve an Imported transaction (AP-02..AP-04, TS-02..TS-04, approvers only).
+      description: >-
+        Changes the transaction's status from Imported to Approved, records the signed-in approver's
+        name as `lastChangedBy` and the current time as `lastChangedAt` (AP-03), and returns the
+        transaction's details as `GET /transactions/{transactionId}` now returns them, so the caller
+        can update the list straight away and confirm the approval (AP-02). The request has no body;
+        asking the person to confirm, naming the reference (AP-01), is up to the caller.
+
+
+        Only an Imported transaction can be approved; Approved and Rejected are final (TS-02, TS-03).
+        If the transaction is no longer Imported, for example because someone else approved or
+        rejected it first, nothing is changed and the request is refused with 409, with the
+        transaction's current details (AP-04). Two requests to approve or reject the same transaction
+        at the same moment change it exactly once; the other is refused with 409.
+
+
+        An approval and a cancel of the transaction's file never overlap: whichever comes second
+        waits for the first. An approval that comes first stands, and the cancel is then refused
+        because the file has an Approved transaction (FX-02); a cancel that comes first removes the
+        transaction, and the approval is then refused with 404.
+      parameters:
+        - $ref: '#/components/parameters/TransactionId'
+      responses:
+        '200':
+          description: The transaction is now Approved; its details.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/TransactionDetails'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/TransactionNotFound'
+        '409':
+          $ref: '#/components/responses/TransactionAlreadyReviewed'
+  /transactions/{transactionId}/reject:
+    post:
+      tags: [Transactions]
+      operationId: RejectTransaction
+      summary: Reject an Imported transaction with a reason (RJ-01..RJ-05, TS-02..TS-04, approvers only).
+      description: >-
+        Changes the transaction's status from Imported to Rejected, stores the reason with it,
+        records the signed-in approver's name as `lastChangedBy` and the current time as
+        `lastChangedAt` (RJ-04), and returns the transaction's details as
+        `GET /transactions/{transactionId}` now returns them, so the caller can update the list
+        straight away and confirm the rejection (RJ-03). The stored reason cannot be edited.
+
+
+        The reason is required (RJ-01) and may be at most 500 characters (RJ-02). Whitespace at the
+        start and end of the reason is removed before it is checked and stored; a reason that is
+        missing, empty or only whitespace is refused with 400, as is one that is longer than 500
+        characters once trimmed. Characters are counted as UTF-16 code units, the same as a
+        JavaScript string's `length`, so a character outside the Basic Multilingual Plane (such as
+        an emoji) counts as 2. A reason the caller limits to 500 characters as typed is therefore
+        always accepted.
+
+
+        Only an Imported transaction can be rejected, and the same rules as approving apply when it
+        is no longer Imported (409 with its current details, RJ-05), when two requests act on it at
+        the same moment, and when its file is being cancelled. The reason is checked before the
+        transaction, so an invalid reason is refused with 400 whatever the transaction's status.
+      parameters:
+        - $ref: '#/components/parameters/TransactionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectTransactionRequest'
+      responses:
+        '200':
+          description: The transaction is now Rejected; its details, with the stored reason.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDetails'
+        '400':
+          description: >-
+            The reason is missing, empty, only whitespace, or longer than 500 characters. The
+            problem is listed under the key `Reason` in `errors` (validation errors about a request
+            body name its fields by their model property names). Nothing is changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/TransactionNotFound'
+        '409':
+          $ref: '#/components/responses/TransactionAlreadyReviewed'
   /dashboard/summary:
     get:
       tags: [Dashboard]
@@ -740,7 +830,31 @@ components:
       schema:
         type: string
         format: uuid
+    TransactionId:
+      name: transactionId
+      in: path
+      required: true
+      description: The transaction's id.
+      schema:
+        type: string
+        format: uuid
   responses:
+    TransactionNotFound:
+      description: No transaction has this id ("Transaction not found"), or its file has been cancelled.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TransactionAlreadyReviewed:
+      description: >-
+        The transaction is no longer Imported, so it was not changed (TS-02, TS-03, AP-04, RJ-05).
+        `message` names its current status: "This transaction has already been approved." or "This
+        transaction has already been rejected."; `transaction` holds its current details, so the
+        caller can show its current status.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/TransactionConflict'
     FileNotFound:
       description: No file has this id ("File not found").
       content:
@@ -1405,6 +1519,29 @@ components:
           type: string
           nullable: true
           description: The approver's reason; null unless the status is Rejected. It cannot be edited.
+    RejectTransactionRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          description: >-
+            Why the transaction is rejected (RJ-01). Required; at most 500 characters once
+            whitespace at the start and end is removed, counted as UTF-16 code units (RJ-02). It is
+            stored trimmed.
+          example: Duplicate payment; see TXN-0001
+    TransactionConflict:
+      type: object
+      description: >-
+        Returned with 409 when a transaction can no longer be approved or rejected because it is
+        not Imported. Nothing was changed.
+      required: [message, transaction]
+      properties:
+        message:
+          type: string
+          example: This transaction has already been approved.
+        transaction:
+          $ref: '#/components/schemas/TransactionDetails'
     ImportedTransactionCount:
       type: object
       required: [count]

@@ -82,6 +82,17 @@ public sealed class TransactionRepository(NpgsqlDataSource dataSource)
     /// <summary>The transaction's details, or null when no transaction of a file that is not cancelled has the id.</summary>
     public async Task<TransactionDetailsRow?> GetAsync(Guid transactionId, CancellationToken cancellationToken)
     {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await GetAsync(connection, transaction: null, transactionId, cancellationToken);
+    }
+
+    /// <summary>
+    /// The transaction's details read on an open connection, within <paramref name="transaction"/>
+    /// when given, or null when no transaction of a file that is not cancelled has the id.
+    /// </summary>
+    public static Task<TransactionDetailsRow?> GetAsync(
+        NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid transactionId, CancellationToken cancellationToken)
+    {
         const string sql = $"""
             SELECT {ListColumns},
                    t.created_by AS CreatedBy, t.created_at AS CreatedAt,
@@ -90,9 +101,8 @@ public sealed class TransactionRepository(NpgsqlDataSource dataSource)
             {TransactionQuerySql.From}
             WHERE t.id = @transactionId
             """;
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await connection.QuerySingleOrDefaultAsync<TransactionDetailsRow>(
-            new CommandDefinition(sql, new { transactionId }, cancellationToken: cancellationToken));
+        return connection.QuerySingleOrDefaultAsync<TransactionDetailsRow>(
+            new CommandDefinition(sql, new { transactionId }, transaction, cancellationToken: cancellationToken));
     }
 
     /// <summary>How many transactions are still Imported (TL-07).</summary>

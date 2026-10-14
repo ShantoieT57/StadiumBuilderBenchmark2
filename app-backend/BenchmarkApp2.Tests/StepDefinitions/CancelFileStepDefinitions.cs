@@ -55,21 +55,6 @@ public sealed class CancelFileStepDefinitions(
         Assert.Equal(statusCode, (int)state.LastResponse.StatusCode);
     }
 
-    [Then("the file {string} has no transactions left")]
-    public async Task ThenTheFileHasNoTransactionsLeft(string fileName)
-    {
-        Assert.Empty(await TestDatabase.GetTransactionsAsync(seeder.GetFileId(fileName)));
-    }
-
-    [Then("the file {string} still has {int} Imported, {int} Approved and {int} Rejected transactions")]
-    public async Task ThenTheFileStillHasTransactions(string fileName, int imported, int approved, int rejected)
-    {
-        var transactions = await TestDatabase.GetTransactionsAsync(seeder.GetFileId(fileName));
-        Assert.Equal(
-            (imported, approved, rejected),
-            (transactions.Count(t => t.Status == "Imported"), transactions.Count(t => t.Status == "Approved"), transactions.Count(t => t.Status == "Rejected")));
-    }
-
     [Then("the last uploaded file has no rows kept for corrections")]
     public async Task ThenTheLastUploadedFileHasNoRowsKeptForCorrections()
     {
