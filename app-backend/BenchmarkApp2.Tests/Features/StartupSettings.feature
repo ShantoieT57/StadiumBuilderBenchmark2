@@ -40,6 +40,8 @@ Feature: Check the settings when the application starts
       | other scheme                 | TransactionApiUri                | ftp://localhost:5100/api  | AppSettings.TransactionApiUri "ftp://localhost:5100/api" must be an absolute http or https URI.                                  |
       | port 5000                    | TransactionApiUri                | http://localhost:5000/api | AppSettings.TransactionApiUri "http://localhost:5000/api" must not use port 5000, which the application-service endpoint uses. |
       | empty connection string      | DatabaseConnectionString         |                           | AppSettings.DatabaseConnectionString must not be empty.                                                                          |
+      | zero heartbeat interval      | EventStreamHeartbeatSeconds      | 0                         | AppSettings.EventStreamHeartbeatSeconds "0" must be greater than 0.                                                              |
+      | too long heartbeat interval  | EventStreamHeartbeatSeconds      | 301                       | AppSettings.EventStreamHeartbeatSeconds "301" must not be greater than 300.                                                      |
 
   Scenario: Every invalid setting is reported together
     Given the application's settings are valid

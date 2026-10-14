@@ -21,8 +21,10 @@ public sealed class Hooks
         FileProcessorFixture fileProcessor,
         SimulatedProcessing processing,
         HeldDatabaseLock heldLock,
-        ApplicationFixture application)
+        ApplicationFixture application,
+        EventStreams eventStreams)
     {
+        await eventStreams.DisposeAsync();
         await application.DisposeAsync();
         await heldLock.DisposeAsync();
         await processing.DisposeAsync();

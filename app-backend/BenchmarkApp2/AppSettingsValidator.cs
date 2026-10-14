@@ -18,6 +18,12 @@ public static class AppSettingsValidator
     /// <summary>The application-service gRPC endpoint's default port (ASPNETCORE_URLS), which no other listener may use.</summary>
     private const int ApplicationServicePort = 5000;
 
+    /// <summary>
+    /// The longest heartbeat interval: a stream must end reasonably soon after its session does, and
+    /// common proxies close connections that are idle for longer.
+    /// </summary>
+    private const int MaxEventStreamHeartbeatSeconds = 300;
+
     public static IReadOnlyList<string> Validate(AppSettings settings)
     {
         var errors = new List<string>();
@@ -34,6 +40,8 @@ public static class AppSettingsValidator
         {
             errors.Add($"{Describe(nameof(AppSettings.ExportTimeZone), settings.ExportTimeZone)} is not a known time zone.");
         }
+        CheckPositive(nameof(AppSettings.EventStreamHeartbeatSeconds), settings.EventStreamHeartbeatSeconds, errors);
+        CheckAtMost(nameof(AppSettings.EventStreamHeartbeatSeconds), settings.EventStreamHeartbeatSeconds, MaxEventStreamHeartbeatSeconds, errors);
         return errors;
     }
 
@@ -65,6 +73,14 @@ public static class AppSettingsValidator
         if (value <= 0)
         {
             errors.Add($"{Describe(name, value.ToString(CultureInfo.InvariantCulture))} must be greater than 0.");
+        }
+    }
+
+    private static void CheckAtMost(string name, long value, long maximum, List<string> errors)
+    {
+        if (value > maximum)
+        {
+            errors.Add($"{Describe(name, value.ToString(CultureInfo.InvariantCulture))} must not be greater than {maximum.ToString(CultureInfo.InvariantCulture)}.");
         }
     }
 

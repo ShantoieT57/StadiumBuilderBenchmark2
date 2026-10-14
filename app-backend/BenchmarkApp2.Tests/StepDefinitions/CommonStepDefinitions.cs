@@ -154,6 +154,7 @@ public sealed class CommonStepDefinitions(
         uploader.UploadAndRememberAsync(Encoding.UTF8.GetBytes(content), fileName);
 
     [Given("I have uploaded a file named {string} with the rows:")]
+    [When("I upload a file named {string} with the rows:")]
     public Task GivenIHaveUploadedAFileNamedWithTheRows(string fileName, DataTable rows) =>
         uploader.UploadAndRememberAsync(TestFiles.ToCsv(rows), fileName);
 

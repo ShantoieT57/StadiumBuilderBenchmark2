@@ -252,7 +252,16 @@ public sealed class FileProcessingUnit : IAsyncDisposable
         return ExecuteAsync(sql, new { FileId, FailureKind = failureKind.ToString(), failureReason, now }, cancellationToken);
     }
 
-    public Task CommitAsync(CancellationToken cancellationToken) => _transaction.CommitAsync(cancellationToken);
+    /// <summary>
+    /// Commits the unit and announces the file on the event stream. The announcement is explicit
+    /// because a re-check that still finds invalid rows can leave every column the files triggers
+    /// watch unchanged; when a trigger has announced the same change, it is delivered once.
+    /// </summary>
+    public async Task CommitAsync(CancellationToken cancellationToken)
+    {
+        await ExecuteAsync("SELECT announce_file_changed(@FileId)", new { FileId }, cancellationToken);
+        await _transaction.CommitAsync(cancellationToken);
+    }
 
     public ValueTask DisposeAsync() => DisposeAsync(_connection, _transaction);
 

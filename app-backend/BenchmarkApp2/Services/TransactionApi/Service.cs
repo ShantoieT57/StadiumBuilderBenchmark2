@@ -3,7 +3,11 @@ using Twenty57.Builder.ApplicationRuntime.Interfaces;
 
 namespace BenchmarkApp2.Services.TransactionApi;
 
-/// <summary>Hosts the TransactionApi REST API, which can be started and stopped independently.</summary>
+/// <summary>
+/// Hosts the TransactionApi REST API, which can be started and stopped independently. The host
+/// includes the live event stream's <see cref="ChangeEventRelay"/>, which listens for database
+/// changes while the host runs; stopping the host closes every open event stream.
+/// </summary>
 public sealed class Service(
     AppSettings settings,
     IHostEnvironment environment,

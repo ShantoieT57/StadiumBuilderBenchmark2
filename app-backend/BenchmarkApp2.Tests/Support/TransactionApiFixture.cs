@@ -38,7 +38,34 @@ public sealed class TransactionApiFixture(ManualTimeProvider clock) : IAsyncDisp
     public Task<HttpResponseMessage> SendJsonTextAsync(HttpMethod method, string relativePath, string jsonText, string? sessionCookie = null) =>
         SendContentAsync(method, relativePath, new StringContent(jsonText, Encoding.UTF8, "application/json"), sessionCookie);
 
-    public async Task<HttpResponseMessage> SendContentAsync(HttpMethod method, string relativePath, HttpContent? content, string? sessionCookie = null)
+    public Task<HttpResponseMessage> SendContentAsync(HttpMethod method, string relativePath, HttpContent? content, string? sessionCookie = null) =>
+        SendAsync(method, relativePath, content, sessionCookie, HttpCompletionOption.ResponseContentRead);
+
+    /// <summary>
+    /// Sends a GET and returns as soon as the response headers arrive, so a response that stays
+    /// open (such as an event stream) can be read while the server is still writing it.
+    /// </summary>
+    public Task<HttpResponseMessage> OpenStreamAsync(string relativePath, string? sessionCookie) =>
+        SendAsync(HttpMethod.Get, relativePath, content: null, sessionCookie, HttpCompletionOption.ResponseHeadersRead);
+
+    /// <summary>A service from the running host, starting the host first if needed.</summary>
+    public async Task<T> GetServiceAsync<T>() where T : notnull
+    {
+        await GetClientAsync();
+        return _app!.Services.GetRequiredService<T>();
+    }
+
+    /// <summary>Stops the host, as the TransactionApi service's Stop does, but keeps the client so open responses can still be read.</summary>
+    public async Task StopHostAsync()
+    {
+        if (_app is not null)
+        {
+            await _app.StopAsync();
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(
+        HttpMethod method, string relativePath, HttpContent? content, string? sessionCookie, HttpCompletionOption completionOption)
     {
         var client = await GetClientAsync();
         using var request = new HttpRequestMessage(method, relativePath);
@@ -47,7 +74,7 @@ public sealed class TransactionApiFixture(ManualTimeProvider clock) : IAsyncDisp
         {
             request.Headers.Add("Cookie", $"{SessionCookie.Name}={sessionCookie}");
         }
-        return await client.SendAsync(request);
+        return await client.SendAsync(request, completionOption);
     }
 
     private async Task<HttpClient> GetClientAsync()

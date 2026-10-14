@@ -9,14 +9,14 @@ namespace BenchmarkApp2.Services.TransactionApi;
 /// Authenticates a request from the session cookie against the active sessions in the database,
 /// and answers unauthenticated requests with a JSON 401 and forbidden requests with a JSON 403
 /// instead of a redirect. The 401 says why the request was not authenticated, so the front-end can
-/// tell an ended session from never signing in.
+/// tell an ended session from never signing in. Authenticating counts as activity on the session,
+/// except for an endpoint marked <see cref="NotSessionActivityAttribute"/>.
 /// </summary>
 public sealed class SessionAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
     UrlEncoder encoder,
-    SessionManager sessionManager,
-    AppSettings settings)
+    SessionManager sessionManager)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "Session";
@@ -35,7 +35,8 @@ public sealed class SessionAuthenticationHandler(
             return AuthenticateResult.NoResult();
         }
 
-        var authentication = await sessionManager.AuthenticateAsync(token, Context.RequestAborted);
+        var countsAsActivity = Context.GetEndpoint()?.Metadata.GetMetadata<NotSessionActivityAttribute>() is null;
+        var authentication = await sessionManager.AuthenticateAsync(token, countsAsActivity, Context.RequestAborted);
         if (authentication.User is not { } session)
         {
             var properties = new AuthenticationProperties();
@@ -63,7 +64,7 @@ public sealed class SessionAuthenticationHandler(
             : UnauthenticatedReason.NotSignedIn;
 
         Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await Response.WriteAsJsonAsync(new UnauthenticatedResponse { Reason = reason, Message = GetMessage(reason) });
+        await Response.WriteAsJsonAsync(new UnauthenticatedResponse { Reason = reason, Message = sessionManager.DescribeUnauthenticated(reason) });
     }
 
     /// <summary>
@@ -75,13 +76,4 @@ public sealed class SessionAuthenticationHandler(
         Response.StatusCode = StatusCodes.Status403Forbidden;
         await Response.WriteAsJsonAsync(new ErrorResponse { Message = ForbiddenMessage });
     }
-
-    private string GetMessage(UnauthenticatedReason reason) => reason switch
-    {
-        UnauthenticatedReason.SessionExpired =>
-            $"Your session has expired after {settings.SessionInactivityTimeoutMinutes} minutes of inactivity. Please sign in again.",
-        UnauthenticatedReason.SignedInElsewhere => "You have been signed out because you signed in somewhere else.",
-        UnauthenticatedReason.SignedOut => "You have been signed out. Please sign in again.",
-        _ => "You are not signed in.",
-    };
 }

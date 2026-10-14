@@ -36,4 +36,12 @@ public sealed class AppSettings : IAppSettings
     /// where .NET can convert it. An id that does not resolve stops the application at startup.
     /// </summary>
     public string ExportTimeZone { get; set; } = "Africa/Johannesburg";
+
+    /// <summary>
+    /// How many seconds apart the live event stream (GET /events) sends a heartbeat, which keeps
+    /// proxies from closing an idle connection. The session is checked at every heartbeat, so a stream
+    /// ends at most this long after its session has expired, been replaced or been signed out.
+    /// Between 1 and 300.
+    /// </summary>
+    public int EventStreamHeartbeatSeconds { get; set; } = 15;
 }

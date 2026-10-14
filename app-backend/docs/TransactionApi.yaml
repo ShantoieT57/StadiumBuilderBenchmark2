@@ -7,7 +7,8 @@ info:
     a signed-in session (sent as the HttpOnly `txn_session` cookie) unless it is
     explicitly marked as anonymous. A person can be signed in in one place at a
     time, and a session ends after a period of inactivity (60 minutes by default);
-    any authenticated request resets that period. When a request is refused with
+    any authenticated request resets that period, except opening or holding the
+    live event stream (`GET /events`). When a request is refused with
     401, the `reason` in the response says why, so the caller can tell an expired
     session or a sign-in elsewhere from never having signed in. When a signed-in
     person's role does not allow an endpoint, the request is refused with 403.
@@ -29,7 +30,80 @@ tags:
       transactions still Imported (approvers only), approving or rejecting a transaction
       (approvers only), and exporting transactions to CSV (approvers only). Transactions of cancelled files are removed when the file is cancelled and
       never appear here.
+  - name: Events
+    description: >-
+      A live stream of change notifications (Server-Sent Events), so screens such as the
+      dashboard, a file's details and the approvals badge can update without refreshing or polling.
 paths:
+  /events:
+    get:
+      tags: [Events]
+      operationId: StreamEvents
+      summary: Stream live change notifications as Server-Sent Events (both roles).
+      description: >-
+        Opens a `text/event-stream` (Server-Sent Events) that stays open and announces changes as
+        they are committed, by any instance of the app or any process that writes to the database.
+        Events are lightweight invalidation hints, not data: on an event, the caller re-fetches the
+        affected endpoints (e.g. the dashboard summary, the file list, the file's details, the
+        transactions list and the Imported count).
+
+
+        **Format.** Each event is sent as `id`, `event` and `data` fields followed by a blank line,
+        e.g. `id: 42` / `event: file-changed` / `data: {"fileId":"…","status":"Processing","isCancelled":false}`.
+        `data` is always one line of JSON. Event ids increase within a stream. The stream starts
+        with a `retry: 5000` field (reconnect after 5 seconds).
+
+
+        **Event types.**
+
+        - `file-changed` (`FileChangedEvent`): a file was uploaded, its status changed (Uploaded,
+          Processing, Completed, Failed), corrections to its invalid rows were saved, a re-check
+          finished (even if the file stays Failed) or the file was cancelled.
+
+        - `transactions-changed` (`TransactionsChangedEvent`): transactions of the file were
+          loaded (by processing or a re-check), approved, rejected or removed by cancelling the file.
+          A cancel of a file that has transactions therefore sends both `file-changed` and
+          `transactions-changed`.
+
+        - `resync` (`ResyncEvent`): the server lost its database connection and reconnected, so
+          changes in between may have been missed; the caller re-fetches everything it shows.
+
+        - `session-ended` (`SessionEndedEvent`): the caller's session has ended, after which the
+          server closes the stream. `reason` is `SessionExpired`, `SignedInElsewhere` or `SignedOut`
+          (as in a 401), so the caller can return the person to the sign-in screen with the same
+          message.
+
+
+        **Heartbeats.** A comment line (`: heartbeat`) is sent every `EventStreamHeartbeatSeconds`
+        (15 seconds by default) so proxies keep the connection open. The session is checked at every
+        heartbeat, so a stream ends within one heartbeat interval of its session expiring, being
+        replaced by a sign-in elsewhere (SI-07) or being signed out (SI-08).
+
+
+        **Session activity.** Opening the stream, keeping it open and receiving heartbeats or
+        events do not count as activity: they never reset the session's inactivity timeout (SI-06).
+
+
+        **Visibility.** Importers and approvers may both see every file and transaction, so every
+        signed-in person receives every event; there is no per-role filtering.
+
+
+        **Reconnecting.** Events are not replayed: `Last-Event-ID` is ignored. After the stream
+        opens or re-opens (including after a `resync`), the caller re-fetches what it shows. The
+        server closes the stream when it shuts down and when the caller falls too far behind in
+        reading events; the caller simply reconnects.
+      responses:
+        '200':
+          description: >-
+            The event stream. It stays open until the session ends, the caller disconnects, the
+            caller falls too far behind, or the server stops.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
   /transactions:
     get:
       tags: [Transactions]
@@ -1135,6 +1209,47 @@ components:
       enum: [NotSignedIn, SessionExpired, SignedInElsewhere, SignedOut]
     UnauthenticatedResponse:
       type: object
+      required: [message, reason]
+      properties:
+        message:
+          type: string
+          example: Your session has expired after 60 minutes of inactivity. Please sign in again.
+        reason:
+          $ref: '#/components/schemas/UnauthenticatedReason'
+    FileChangedEvent:
+      type: object
+      description: >-
+        The `data` of a `file-changed` event on the event stream (`GET /events`): the file's status
+        and whether it is cancelled after the change.
+      required: [fileId, status, isCancelled]
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/FileStatus'
+        isCancelled:
+          type: boolean
+    TransactionsChangedEvent:
+      type: object
+      description: >-
+        The `data` of a `transactions-changed` event on the event stream (`GET /events`): the file
+        whose transactions were loaded, approved, rejected or removed.
+      required: [fileId]
+      properties:
+        fileId:
+          type: string
+          format: uuid
+    ResyncEvent:
+      type: object
+      description: >-
+        The `data` of a `resync` event on the event stream (`GET /events`), always `{}`: changes may
+        have been missed, so the caller re-fetches everything it shows.
+    SessionEndedEvent:
+      type: object
+      description: >-
+        The `data` of a `session-ended` event on the event stream (`GET /events`), the last event
+        before the server closes the stream. The same as the body of a 401 for the ended session.
       required: [message, reason]
       properties:
         message:

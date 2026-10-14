@@ -62,6 +62,13 @@ public static class WebHostFactory
         services.AddSingleton<TransactionReviewRepository>();
         services.AddSingleton<FileProcessor.Corrector>();
 
+        // The live event stream: one listening connection relayed to every client, started and
+        // stopped with this host (see ChangeEventRelay).
+        services.AddSingleton<ChangeNotificationListener>();
+        services.AddSingleton<ChangeEventHub>();
+        services.AddSingleton<EventStream>();
+        services.AddHostedService<ChangeEventRelay>();
+
         services.AddControllers().AddApplicationPart(typeof(Controller).Assembly);
         services.AddCamelCaseValidationErrorKeys();
         services

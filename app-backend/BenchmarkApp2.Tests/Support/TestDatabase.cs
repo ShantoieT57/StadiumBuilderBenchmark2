@@ -101,6 +101,30 @@ public static class TestDatabase
         Assert.Equal(1, await connection.ExecuteAsync(sql, new { email, tokenHash, now }));
     }
 
+    /// <summary>
+    /// Ends every connection to the test database with this application name, as a database restart
+    /// or network failure would, and returns how many there were.
+    /// </summary>
+    public static async Task<int> TerminateConnectionsAsync(string applicationName)
+    {
+        const string sql = """
+            SELECT count(*)::int
+            FROM (SELECT pg_terminate_backend(pid)
+                  FROM pg_stat_activity
+                  WHERE datname = current_database() AND application_name = @applicationName) AS terminated
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return await connection.ExecuteScalarAsync<int>(sql, new { applicationName });
+    }
+
+    /// <summary>Sends each payload as a notification on the channel, all in one database transaction.</summary>
+    public static async Task NotifyAsync(string channel, IEnumerable<string> payloads)
+    {
+        const string sql = "SELECT count(pg_notify(@channel, payload)) FROM unnest(@payloads) AS payload";
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.ExecuteScalarAsync<long>(sql, new { channel, payloads = payloads.ToArray() });
+    }
+
     /// <summary>The recorded end reason of a session, or null while the session is still active.</summary>
     public static async Task<string?> GetSessionEndReasonAsync(byte[] tokenHash)
     {

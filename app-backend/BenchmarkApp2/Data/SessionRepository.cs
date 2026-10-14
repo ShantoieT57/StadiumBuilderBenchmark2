@@ -90,6 +90,25 @@ public sealed class SessionRepository(NpgsqlDataSource dataSource)
     }
 
     /// <summary>
+    /// Returns the user of a session that is active and has not timed out, without recording any
+    /// activity on it, or null when there is no such session.
+    /// </summary>
+    public async Task<SessionUserRecord?> FindActiveAsync(byte[] tokenHash, DateTimeOffset now, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT s.id AS SessionId, u.id AS UserId, u.name, u.email, u.role
+            FROM sessions s
+            JOIN users u ON u.id = s.user_id
+            WHERE s.token_hash = @tokenHash
+              AND s.ended_at IS NULL
+              AND s.last_activity_at > @cutoff
+            """;
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<SessionUserRecord>(new CommandDefinition(
+            sql, new { tokenHash, cutoff = now - timeout }, cancellationToken: cancellationToken));
+    }
+
+    /// <summary>
     /// Ends the session as expired if it is still recorded as active but has timed out, then returns
     /// why the session ended. Returns null when no session has this token hash.
     /// </summary>

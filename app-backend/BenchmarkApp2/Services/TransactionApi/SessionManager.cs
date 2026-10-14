@@ -61,15 +61,18 @@ public sealed class SessionManager(
     }
 
     /// <summary>
-    /// Authenticates a session token. A successful authentication counts as activity and restarts
-    /// the inactivity timeout.
+    /// Authenticates a session token. When <paramref name="countsAsActivity"/>, a successful
+    /// authentication restarts the inactivity timeout; otherwise (e.g. for the event stream and its
+    /// heartbeat checks) the session is only checked and its timeout keeps running.
     /// </summary>
-    public async Task<SessionAuthentication> AuthenticateAsync(string token, CancellationToken cancellationToken)
+    public async Task<SessionAuthentication> AuthenticateAsync(string token, bool countsAsActivity, CancellationToken cancellationToken)
     {
         var tokenHash = SessionCookie.HashToken(token);
         var now = timeProvider.GetUtcNow();
 
-        var user = await sessions.TouchActiveAsync(tokenHash, now, InactivityTimeout, cancellationToken);
+        var user = countsAsActivity
+            ? await sessions.TouchActiveAsync(tokenHash, now, InactivityTimeout, cancellationToken)
+            : await sessions.FindActiveAsync(tokenHash, now, InactivityTimeout, cancellationToken);
         if (user is not null)
         {
             return SessionAuthentication.Succeeded(user);
@@ -83,6 +86,16 @@ public sealed class SessionManager(
     public Task SignOutAsync(string token, CancellationToken cancellationToken) =>
         sessions.EndAllSessionsOfActiveSessionOwnerAsync(
             SessionCookie.HashToken(token), SessionEndReason.SignedOut, timeProvider.GetUtcNow(), InactivityTimeout, cancellationToken);
+
+    /// <summary>The message telling a person why they are not (or no longer) signed in.</summary>
+    public string DescribeUnauthenticated(UnauthenticatedReason reason) => reason switch
+    {
+        UnauthenticatedReason.SessionExpired =>
+            $"Your session has expired after {settings.SessionInactivityTimeoutMinutes} minutes of inactivity. Please sign in again.",
+        UnauthenticatedReason.SignedInElsewhere => "You have been signed out because you signed in somewhere else.",
+        UnauthenticatedReason.SignedOut => "You have been signed out. Please sign in again.",
+        _ => "You are not signed in.",
+    };
 
     private static UnauthenticatedReason ToUnauthenticatedReason(string? endReason) => endReason switch
     {

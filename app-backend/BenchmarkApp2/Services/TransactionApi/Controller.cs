@@ -29,7 +29,8 @@ public sealed class Controller(
     TransactionRepository transactionRepository,
     TransactionReviewRepository transactionReviewRepository,
     TimeProvider timeProvider,
-    ExportTimeZone exportTimeZone) : ControllerBase
+    ExportTimeZone exportTimeZone,
+    EventStream eventStream) : ControllerBase
 {
     private const string CsvContentType = "text/csv";
     private const string FileNotFoundMessage = "File not found";
@@ -72,6 +73,18 @@ public sealed class Controller(
             User.FindFirstValue(ClaimTypes.Email)!,
             User.FindFirstValue(ClaimTypes.Role)!);
         return Task.FromResult<ActionResult<CurrentUser>>(currentUser);
+    }
+
+    /// <summary>
+    /// Both roles. Holds the response open as a Server-Sent Events stream (see <see cref="EventStream"/>).
+    /// Neither opening nor holding the stream counts as activity on the session (SI-06).
+    /// </summary>
+    [NotSessionActivity]
+    public override async Task<IActionResult> StreamEvents(CancellationToken cancellationToken = default)
+    {
+        SessionCookie.TryRead(Request, out var token);
+        await eventStream.WriteAsync(Response, token, cancellationToken);
+        return new EmptyResult();
     }
 
     /// <summary>Anonymous and idempotent, so a person can always sign out even with an ended session.</summary>
