@@ -1,4 +1,3 @@
-using System.Text.Json;
 using BenchmarkApp2.Tests.Support;
 using Reqnroll;
 
@@ -24,14 +23,6 @@ public sealed class SignInStepDefinitions(TransactionApiFixture api, ApiScenario
     public void ThenNoSessionCookieIsIssued()
     {
         Assert.Null(state.IssuedSessionCookieHeader);
-    }
-
-    [Then("the validation errors include the field {string}")]
-    public void ThenTheValidationErrorsIncludeTheField(string field)
-    {
-        using var json = JsonDocument.Parse(state.LastResponseBody);
-        var fields = json.RootElement.GetProperty("errors").EnumerateObject().Select(error => error.Name);
-        Assert.Contains(fields, name => string.Equals(name, field, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task SignInAsync(object body)

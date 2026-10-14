@@ -40,7 +40,7 @@ public static class TestDatabase
     public static async Task ResetAsync()
     {
         await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.ExecuteAsync("DELETE FROM sessions");
+        await connection.ExecuteAsync("DELETE FROM files; DELETE FROM sessions");
     }
 
     /// <summary>
@@ -64,4 +64,29 @@ public static class TestDatabase
         await using var connection = new NpgsqlConnection(ConnectionString);
         return await connection.QuerySingleAsync<string?>(sql, new { tokenHash });
     }
+
+    /// <summary>Every stored file, with the email address of the person who uploaded it.</summary>
+    public static async Task<IReadOnlyList<StoredFile>> GetStoredFilesAsync()
+    {
+        const string sql = """
+            SELECT f.id, f.file_name AS FileName, f.kind, f.status, f.content,
+                   f.content_sha256 AS ContentSha256, u.email AS UploadedByEmail, f.uploaded_at AS UploadedAt
+            FROM files f
+            JOIN users u ON u.id = f.uploaded_by
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return (await connection.QueryAsync<StoredFile>(sql)).ToList();
+    }
+}
+
+public sealed class StoredFile
+{
+    public Guid Id { get; init; }
+    public string FileName { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Status { get; init; } = string.Empty;
+    public byte[] Content { get; init; } = [];
+    public byte[] ContentSha256 { get; init; } = [];
+    public string UploadedByEmail { get; init; } = string.Empty;
+    public DateTime UploadedAt { get; init; }
 }

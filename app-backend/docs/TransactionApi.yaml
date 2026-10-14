@@ -9,12 +9,15 @@ info:
     time, and a session ends after a period of inactivity (60 minutes by default);
     any authenticated request resets that period. When a request is refused with
     401, the `reason` in the response says why, so the caller can tell an expired
-    session or a sign-in elsewhere from never having signed in.
+    session or a sign-in elsewhere from never having signed in. When a signed-in
+    person's role does not allow an endpoint, the request is refused with 403.
 servers:
   - url: http://localhost:5100/api
 tags:
   - name: Authentication
     description: Signing in, identifying the signed-in person, and signing out.
+  - name: Files
+    description: Uploading transaction files (importers only).
 paths:
   /auth/sign-in:
     post:
@@ -91,8 +94,72 @@ paths:
       responses:
         '204':
           description: Signed out. The session cookie is cleared.
+  /files:
+    post:
+      tags: [Files]
+      operationId: UploadFile
+      summary: Upload a transaction file (importers only).
+      description: >-
+        Hands a file over for processing and returns at once with the status
+        `Uploaded`. The exact original bytes are kept. Checking and loading the
+        file happen afterwards, in the background. Only `.csv` files are accepted
+        (the extension is matched regardless of upper and lower case). The file
+        name must not be empty, must be 255 characters or fewer, and must not
+        contain `..`, `\`, `/` or `:`. Files larger than the configured maximum
+        upload size (10 MB by default) are refused with 413.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload, with its original file name.
+                kind:
+                  $ref: '#/components/schemas/FileKind'
+      responses:
+        '201':
+          description: The file has been received and is waiting to be processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadedFile'
+        '400':
+          description: >-
+            The file name is invalid ("Invalid file name"), the file is not a
+            `.csv` file, the file is missing, or the file kind is unknown. A
+            refused file name or file type is described by `message`; a missing
+            file or unknown kind is reported as a validation problem.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - $ref: '#/components/schemas/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: The file is larger than the maximum upload size.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   responses:
+    Forbidden:
+      description: >-
+        The signed-in person's role does not allow this request. The `message`
+        tells them they do not have access and to ask their administrator.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     Unauthenticated:
       description: >-
         There is no valid session. The `reason` says why, so the caller can show
@@ -160,6 +227,35 @@ components:
           example: Your session has expired after 60 minutes of inactivity. Please sign in again.
         reason:
           $ref: '#/components/schemas/UnauthenticatedReason'
+    FileKind:
+      type: string
+      description: What kind of file is uploaded. There is one kind today.
+      enum: [BankTransactions]
+      default: BankTransactions
+    FileStatus:
+      type: string
+      description: >-
+        Uploaded - received and not yet checked. Processing - being checked or
+        loaded. Completed - the transactions are loaded and ready for approval.
+        Failed - a duplicate, or invalid rows are waiting for corrections.
+      enum: [Uploaded, Processing, Completed, Failed]
+    UploadedFile:
+      type: object
+      required: [id, fileName, kind, status, uploadedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+          example: transactions_2026-04-15.csv
+        kind:
+          $ref: '#/components/schemas/FileKind'
+        status:
+          $ref: '#/components/schemas/FileStatus'
+        uploadedAt:
+          type: string
+          format: date-time
     ValidationProblem:
       type: object
       description: RFC 7807 validation problem details, with the failing fields under `errors`.

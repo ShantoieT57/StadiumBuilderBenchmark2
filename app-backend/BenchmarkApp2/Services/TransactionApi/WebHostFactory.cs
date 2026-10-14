@@ -51,6 +51,8 @@ public static class WebHostFactory
         services.AddSingleton<SessionRepository>();
         services.AddSingleton<IPasswordHasher<UserRecord>, PasswordHasher<UserRecord>>();
         services.AddSingleton<SessionManager>();
+        services.AddSingleton<FileRepository>();
+        services.AddSingleton<FileReceiver>();
 
         services.AddControllers().AddApplicationPart(typeof(Controller).Assembly);
         services

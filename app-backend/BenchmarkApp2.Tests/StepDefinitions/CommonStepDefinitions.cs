@@ -55,6 +55,14 @@ public sealed class CommonStepDefinitions(TransactionApiFixture api, ApiScenario
         Assert.Equal(reason, GetResponseProperty("reason"));
     }
 
+    [Then("the validation errors include the field {string}")]
+    public void ThenTheValidationErrorsIncludeTheField(string field)
+    {
+        using var json = JsonDocument.Parse(state.LastResponseBody);
+        var fields = json.RootElement.GetProperty("errors").EnumerateObject().Select(error => error.Name);
+        Assert.Contains(fields, name => string.Equals(name, field, StringComparison.OrdinalIgnoreCase));
+    }
+
     [Then("the response describes the user {string} with email {string} and role {string}")]
     public void ThenTheResponseDescribesTheUser(string name, string email, string role)
     {

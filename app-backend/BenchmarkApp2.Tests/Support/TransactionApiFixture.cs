@@ -30,14 +30,14 @@ public sealed class TransactionApiFixture(ManualTimeProvider clock) : IAsyncDisp
         DatabaseConnectionString = TestDatabase.ConnectionString,
     };
 
-    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string relativePath, object? jsonBody = null, string? sessionCookie = null)
+    public Task<HttpResponseMessage> SendAsync(HttpMethod method, string relativePath, object? jsonBody = null, string? sessionCookie = null) =>
+        SendContentAsync(method, relativePath, jsonBody is null ? null : JsonContent.Create(jsonBody), sessionCookie);
+
+    public async Task<HttpResponseMessage> SendContentAsync(HttpMethod method, string relativePath, HttpContent? content, string? sessionCookie = null)
     {
         var client = await GetClientAsync();
         using var request = new HttpRequestMessage(method, relativePath);
-        if (jsonBody is not null)
-        {
-            request.Content = JsonContent.Create(jsonBody);
-        }
+        request.Content = content;
         if (sessionCookie is not null)
         {
             request.Headers.Add("Cookie", $"{SessionCookie.Name}={sessionCookie}");

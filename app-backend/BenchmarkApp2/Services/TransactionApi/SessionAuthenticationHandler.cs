@@ -7,8 +7,9 @@ namespace BenchmarkApp2.Services.TransactionApi;
 
 /// <summary>
 /// Authenticates a request from the session cookie against the active sessions in the database,
-/// and answers unauthenticated requests with a JSON 401 instead of a redirect. The 401 says why the
-/// request was not authenticated, so the front-end can tell an ended session from never signing in.
+/// and answers unauthenticated requests with a JSON 401 and forbidden requests with a JSON 403
+/// instead of a redirect. The 401 says why the request was not authenticated, so the front-end can
+/// tell an ended session from never signing in.
 /// </summary>
 public sealed class SessionAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
@@ -24,6 +25,8 @@ public sealed class SessionAuthenticationHandler(
 
     /// <summary>The authentication property that carries the <see cref="UnauthenticatedReason"/> to the challenge.</summary>
     private const string FailureReasonProperty = "failure_reason";
+
+    private const string ForbiddenMessage = "You do not have access to this. Please ask your administrator for access.";
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -61,6 +64,16 @@ public sealed class SessionAuthenticationHandler(
 
         Response.StatusCode = StatusCodes.Status401Unauthorized;
         await Response.WriteAsJsonAsync(new UnauthenticatedResponse { Reason = reason, Message = GetMessage(reason) });
+    }
+
+    /// <summary>
+    /// Answers a signed-in person whose role does not allow the request with a JSON 403, so the
+    /// front-end can tell them they do not have access and who to ask.
+    /// </summary>
+    protected override async Task HandleForbiddenAsync(AuthenticationProperties properties)
+    {
+        Response.StatusCode = StatusCodes.Status403Forbidden;
+        await Response.WriteAsJsonAsync(new ErrorResponse { Message = ForbiddenMessage });
     }
 
     private string GetMessage(UnauthenticatedReason reason) => reason switch

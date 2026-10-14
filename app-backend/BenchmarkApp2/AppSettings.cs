@@ -16,6 +16,9 @@ public sealed class AppSettings : IAppSettings
     /// </summary>
     public int SessionInactivityTimeoutMinutes { get; set; } = 60;
 
+    /// <summary>The largest file, in bytes, that can be uploaded. 10 MB by default.</summary>
+    public long MaxUploadSizeBytes { get; set; } = 10 * 1024 * 1024;
+
     /// <summary>The PostgreSQL connection string for the application database.</summary>
     public string DatabaseConnectionString { get; set; } =
         "Host=localhost;Port=5433;Database=benchmark_app_2;Username=postgres;Password=postgres";

@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\documentation\TestFiles\*.csv" Link="TestFiles\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

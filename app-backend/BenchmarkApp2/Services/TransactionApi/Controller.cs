@@ -1,12 +1,15 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace BenchmarkApp2.Services.TransactionApi;
 
 /// <summary>
 /// Implements the TransactionApi operations generated from docs/TransactionApi.yaml.
 /// Every operation requires a signed-in session (the fallback policy) unless marked anonymous.
+/// An operation limited to some roles uses <c>[Authorize(Roles = ...)]</c>; a signed-in person in
+/// another role is refused with a JSON 403 (see <see cref="SessionAuthenticationHandler"/>).
 /// </summary>
 /// <remarks>
 /// The empty route replaces the generated base controller's route, which NSwag derives from the
@@ -14,9 +17,11 @@ namespace BenchmarkApp2.Services.TransactionApi;
 /// </remarks>
 [ApiController]
 [Route("")]
-public sealed class Controller(SessionManager sessionManager) : ControllerBase
+public sealed class Controller(SessionManager sessionManager, FileReceiver fileReceiver) : ControllerBase
 {
     private const string InvalidCredentialsMessage = "Invalid email or password";
+    private const string InvalidFileNameMessage = "Invalid file name";
+    private const string NotCsvFileMessage = "Only .csv files can be uploaded. Please choose a .csv file.";
 
     [AllowAnonymous]
     public override async Task<ActionResult<CurrentUser>> SignIn(SignInRequest body, CancellationToken cancellationToken = default)
@@ -51,6 +56,43 @@ public sealed class Controller(SessionManager sessionManager) : ControllerBase
 
         SessionCookie.Delete(Response);
         return NoContent();
+    }
+
+    /// <summary>
+    /// Importers only. Over-sized files are refused by <see cref="UploadSizeLimitFilter"/> before
+    /// the form is bound.
+    /// </summary>
+    [Authorize(Roles = nameof(UserRole.Importer))]
+    [TypeFilter(typeof(UploadSizeLimitFilter))]
+    public override async Task<ActionResult<UploadedFile>> UploadFile(
+        [ModelBinder(typeof(FileParameterModelBinder)), BindRequired] FileParameter? file = null,
+        [FromForm] FileKind? kind = FileKind.BankTransactions,
+        CancellationToken cancellationToken = default)
+    {
+        var fileName = file!.FileName ?? string.Empty;
+        switch (FileReceiver.Check(fileName))
+        {
+            case UploadRefusal.InvalidFileName:
+                return BadRequest(new ErrorResponse { Message = InvalidFileNameMessage });
+            case UploadRefusal.NotCsvFile:
+                return BadRequest(new ErrorResponse { Message = NotCsvFileMessage });
+        }
+
+        var received = await fileReceiver.ReceiveAsync(
+            fileName,
+            kind ?? FileKind.BankTransactions,
+            file.Data,
+            Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!),
+            cancellationToken);
+
+        return StatusCode(StatusCodes.Status201Created, new UploadedFile
+        {
+            Id = received.Id,
+            FileName = received.FileName,
+            Kind = received.Kind,
+            Status = FileStatus.Uploaded,
+            UploadedAt = received.UploadedAt,
+        });
     }
 
     private static CurrentUser ToCurrentUser(string name, string email, string role) => new()
