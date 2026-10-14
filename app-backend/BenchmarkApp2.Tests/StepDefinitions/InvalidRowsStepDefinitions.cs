@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using BenchmarkApp2.Tests.Support;
 using Reqnroll;
@@ -8,11 +7,6 @@ namespace BenchmarkApp2.Tests.StepDefinitions;
 [Binding]
 public sealed class InvalidRowsStepDefinitions(TransactionApiFixture api, FileSeeder seeder, ApiScenarioState state)
 {
-    private const string ReasonSeparator = "; ";
-
-    /// <summary>Reads the response exactly as sent: camelCase names, matched case-sensitively.</summary>
-    private static readonly JsonSerializerOptions ResponseJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-
     private IReadOnlyList<Guid> _previousRowIds = [];
 
     [When("I request the invalid rows of the last uploaded file")]
@@ -31,28 +25,8 @@ public sealed class InvalidRowsStepDefinitions(TransactionApiFixture api, FileSe
     [When("I request the invalid rows of a file that does not exist")]
     public Task WhenIRequestTheInvalidRowsOfAFileThatDoesNotExist() => RequestInvalidRowsAsync(Guid.NewGuid());
 
-    /// <summary>
-    /// Table cells lose their surrounding spaces, so a value that must keep them is written between
-    /// single quotes.
-    /// </summary>
     [Then("the invalid rows are:")]
-    public void ThenTheInvalidRowsAre(DataTable expected)
-    {
-        var rows = ReadList().Rows;
-        Assert.Equal(expected.RowCount, rows.Count);
-        foreach (var (row, actual) in expected.Rows.Zip(rows))
-        {
-            Assert.Equal(int.Parse(row["Row"], CultureInfo.InvariantCulture), actual.RowNumber);
-            Assert.Equal(Unquote(row["Reference"]), actual.Reference);
-            Assert.Equal(Unquote(row["TransactionDate"]), actual.TransactionDate);
-            Assert.Equal(Unquote(row["AccountNumber"]), actual.AccountNumber);
-            Assert.Equal(Unquote(row["Description"]), actual.Description);
-            Assert.Equal(Unquote(row["Amount"]), actual.Amount);
-            Assert.Equal(Unquote(row["TransactionType"]), actual.TransactionType);
-            Assert.Equal(Unquote(row["Currency"]), actual.Currency);
-            Assert.Equal(row["Reasons"], string.Join(ReasonSeparator, actual.Reasons));
-        }
-    }
+    public void ThenTheInvalidRowsAre(DataTable expected) => InvalidRowLists.AssertRows(expected, ReadList());
 
     [Then("the number of invalid rows remaining is {int}")]
     public void ThenTheNumberOfInvalidRowsRemainingIs(int count)
@@ -80,24 +54,9 @@ public sealed class InvalidRowsStepDefinitions(TransactionApiFixture api, FileSe
         await state.RecordResponseAsync(await api.SendAsync(HttpMethod.Get, $"files/{fileId}/invalid-rows", sessionCookie: state.SessionCookie));
     }
 
-    private InvalidRowListResponse ReadList() =>
-        JsonSerializer.Deserialize<InvalidRowListResponse>(state.LastResponseBody, ResponseJson)
-        ?? throw new InvalidOperationException("The response holds no list of invalid rows.");
-
-    private static string Unquote(string value) =>
-        value.Length >= 2 && value.StartsWith('\'') && value.EndsWith('\'') ? value[1..^1] : value;
-
-    private sealed record InvalidRowListResponse(int TotalCount, List<InvalidRowResponse> Rows);
-
-    private sealed record InvalidRowResponse(
-        Guid Id,
-        int RowNumber,
-        string Reference,
-        string TransactionDate,
-        string AccountNumber,
-        string Description,
-        string Amount,
-        string TransactionType,
-        string Currency,
-        List<string> Reasons);
+    private InvalidRowLists.InvalidRowListResponse ReadList()
+    {
+        using var json = JsonDocument.Parse(state.LastResponseBody);
+        return InvalidRowLists.Read(json.RootElement);
+    }
 }

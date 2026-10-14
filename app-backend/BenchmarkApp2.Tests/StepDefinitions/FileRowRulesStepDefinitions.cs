@@ -33,27 +33,6 @@ public sealed class FileRowRulesStepDefinitions(ApiScenarioState state, ManualTi
             invalidRows.Select(row => (row.RowNumber, string.Join(ReasonSeparator, row.Reasons))));
     }
 
-    [Then("the rows kept for corrections of the last uploaded file are:")]
-    public async Task ThenTheRowsKeptForCorrectionsAre(DataTable expected)
-    {
-        var rows = await TestDatabase.GetFileRowsAsync(state.LastUploadedFileId);
-        Assert.Equal(expected.RowCount, rows.Count);
-        foreach (var (row, stored) in expected.Rows.Zip(rows))
-        {
-            Assert.Equal(int.Parse(row["Row"], CultureInfo.InvariantCulture), stored.RowNumber);
-            Assert.Equal(row["Reference"], stored.Reference);
-            Assert.Equal(row["TransactionDate"], stored.TransactionDate);
-            Assert.Equal(row["AccountNumber"], stored.AccountNumber);
-            Assert.Equal(row["Description"], stored.Description);
-            Assert.Equal(row["Amount"], stored.Amount);
-            Assert.Equal(row["TransactionType"], stored.TransactionType);
-            Assert.Equal(row["Currency"], stored.Currency);
-            Assert.Equal(int.Parse(row["Columns"], CultureInfo.InvariantCulture), stored.ColumnCount);
-            Assert.Equal(row["ExtraValues"], string.Join(';', stored.ExtraValues));
-            Assert.Equal(row["Reasons"], string.Join(ReasonSeparator, stored.Reasons));
-        }
-    }
-
     [Then("the transaction {string} has the transaction date {string}")]
     public async Task ThenTheTransactionHasTheTransactionDate(string reference, string transactionDate)
     {

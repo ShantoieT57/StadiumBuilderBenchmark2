@@ -4,9 +4,10 @@ using Npgsql;
 namespace BenchmarkApp2.Data;
 
 /// <summary>
-/// Database access for claiming files to process. A file is claimed by moving it from Uploaded to
-/// Processing in its own short transaction, so the status is visible straight away; the claimed file
-/// is then processed inside a <see cref="FileProcessingUnit"/>.
+/// Database access for claiming files to process and for starting the correction of a file. A file
+/// is claimed by moving it from Uploaded to Processing in its own short transaction, so the status is
+/// visible straight away; the claimed file is then processed inside a <see cref="FileProcessingUnit"/>,
+/// as is the correction and re-check of a file waiting for corrections.
 /// </summary>
 public sealed class FileProcessingRepository(NpgsqlDataSource dataSource)
 {
@@ -67,6 +68,14 @@ public sealed class FileProcessingRepository(NpgsqlDataSource dataSource)
     /// Starts processing a claimed file in one transaction and returns it, or null when the file is no
     /// longer in Processing (for example, recovered by another instance in the meantime).
     /// </summary>
-    public async Task<FileProcessingUnit?> BeginProcessingAsync(Guid fileId, CancellationToken cancellationToken) =>
-        await FileProcessingUnit.BeginAsync(dataSource, fileId, cancellationToken);
+    public Task<(FileProcessingUnit Unit, FileToProcess File)?> BeginProcessingAsync(Guid fileId, CancellationToken cancellationToken) =>
+        FileProcessingUnit.BeginProcessingAsync(dataSource, fileId, cancellationToken);
+
+    /// <summary>
+    /// Starts correcting a file in one transaction, waiting for any correction of it already under
+    /// way, and returns it with what decides whether it waits for corrections, or null when no file
+    /// has the id.
+    /// </summary>
+    public Task<(FileProcessingUnit Unit, FileCorrectionStateRecord State)?> BeginCorrectionAsync(Guid fileId, CancellationToken cancellationToken) =>
+        FileProcessingUnit.BeginCorrectionAsync(dataSource, fileId, cancellationToken);
 }

@@ -21,10 +21,12 @@ public static class TransactionFileReader
     public static IReadOnlyList<string[]> ReadRecords(byte[] content)
     {
         var text = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetString(content)
-            .TrimStart('﻿')
-            .Replace('\0', '�');
-        return CsvParser.Parse(text).Skip(1).ToList();
+            .TrimStart('﻿');
+        return CsvParser.Parse(ToStorableText(text)).Skip(1).ToList();
     }
+
+    /// <summary>The text with any NUL character, which the database cannot store as text, replaced with U+FFFD.</summary>
+    public static string ToStorableText(string text) => text.Replace('\0', '�');
 
     /// <summary>
     /// Stage 3 (Read rows): each record as a row of original values, numbered from 1. A record with

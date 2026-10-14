@@ -43,14 +43,8 @@ public sealed class FileDetailsStepDefinitions(TransactionApiFixture api, FileSe
     [Then("the processing history in the details is:")]
     public void ThenTheProcessingHistoryInTheDetailsIs(DataTable expected)
     {
-        var history = ReadHistory();
-        Assert.Equal(expected.RowCount, history.Count);
-        foreach (var (row, stage) in expected.Rows.Zip(history))
-        {
-            Assert.Equal(row["stage"], stage.GetProperty("stage").GetString());
-            JsonFields.AssertValue("startedAt", row["started"], stage.GetProperty("startedAt"));
-            JsonFields.AssertValue("finishedAt", row["finished"], stage.GetProperty("finishedAt"));
-        }
+        using var json = JsonDocument.Parse(state.LastResponseBody);
+        ProcessingHistoryAssert.AreStages(expected, json.RootElement.GetProperty("processingHistory"));
     }
 
     [Then("the processing history in the details lists the stages {string}")]

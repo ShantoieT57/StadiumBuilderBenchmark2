@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -14,9 +15,11 @@ public sealed class CommonStepDefinitions(
     FileUploader uploader,
     FileSeeder seeder,
     ApiScenarioState state,
-    ManualTimeProvider clock)
+    ManualTimeProvider clock,
+    CorrectionClient corrections)
 {
     private const string SeededPassword = "Test123";
+    private const string ReasonSeparator = "; ";
 
     [Given("I am signed in as {string}")]
     public async Task GivenIAmSignedInAs(string email)
@@ -182,6 +185,78 @@ public sealed class CommonStepDefinitions(
         var history = await TestDatabase.GetProcessingStagesAsync(state.LastUploadedFileId);
         Assert.Equal(stages.Rows.Select(row => row["Stage"]), history.Select(stage => stage.Stage));
     }
+
+    [Then("every transaction from the last uploaded file was created and last changed by {string} at the current time")]
+    public async Task ThenEveryTransactionWasCreatedAndLastChangedBy(string changedBy)
+    {
+        var transactions = await TestDatabase.GetTransactionsAsync(state.LastUploadedFileId);
+        Assert.NotEmpty(transactions);
+        Assert.All(transactions, transaction =>
+        {
+            Assert.Equal(changedBy, transaction.CreatedBy);
+            Assert.Equal(changedBy, transaction.LastChangedBy);
+            TimeAssert.IsCurrentTime(transaction.CreatedAt, clock);
+            TimeAssert.IsCurrentTime(transaction.LastChangedAt, clock);
+        });
+    }
+
+    [Then("the transactions loaded from the last uploaded file are:")]
+    public async Task ThenTheTransactionsLoadedFromTheLastUploadedFileAre(DataTable expected)
+    {
+        var transactions = await TestDatabase.GetTransactionsAsync(state.LastUploadedFileId);
+        Assert.Equal(expected.RowCount, transactions.Count);
+        foreach (var (row, transaction) in expected.Rows.Zip(transactions))
+        {
+            Assert.Equal(row["Reference"], transaction.Reference);
+            Assert.Equal(row["TransactionDate"], TransactionValues.FormatDate(transaction.TransactionDate));
+            Assert.Equal(row["AccountNumber"], transaction.AccountNumber);
+            Assert.Equal(row["Description"], transaction.Description);
+            Assert.Equal(decimal.Parse(row["Amount"], CultureInfo.InvariantCulture), transaction.Amount);
+            Assert.Equal(row["TransactionType"], transaction.TransactionType);
+            Assert.Equal(row["Currency"], transaction.Currency);
+            Assert.Equal(row["Status"], transaction.Status);
+        }
+    }
+
+    [Then("the transaction {string} still has the description {string} and belongs to uploaded file {int}")]
+    public async Task ThenTheTransactionStillHasTheDescriptionAndBelongsToUploadedFile(string reference, string description, int position)
+    {
+        var transaction = await TransactionValues.GetByReferenceAsync(reference);
+        Assert.Equal(description, transaction.Description);
+        Assert.Equal(state.GetUploadedFileId(position), transaction.FileId);
+    }
+
+    [Then("the rows kept for corrections of the last uploaded file are:")]
+    public async Task ThenTheRowsKeptForCorrectionsAre(DataTable expected)
+    {
+        var rows = await TestDatabase.GetFileRowsAsync(state.LastUploadedFileId);
+        Assert.Equal(expected.RowCount, rows.Count);
+        foreach (var (row, stored) in expected.Rows.Zip(rows))
+        {
+            Assert.Equal(int.Parse(row["Row"], CultureInfo.InvariantCulture), stored.RowNumber);
+            Assert.Equal(row["Reference"], stored.Reference);
+            Assert.Equal(row["TransactionDate"], stored.TransactionDate);
+            Assert.Equal(row["AccountNumber"], stored.AccountNumber);
+            Assert.Equal(row["Description"], stored.Description);
+            Assert.Equal(row["Amount"], stored.Amount);
+            Assert.Equal(row["TransactionType"], stored.TransactionType);
+            Assert.Equal(row["Currency"], stored.Currency);
+            Assert.Equal(int.Parse(row["Columns"], CultureInfo.InvariantCulture), stored.ColumnCount);
+            Assert.Equal(row["ExtraValues"], string.Join(';', stored.ExtraValues));
+            Assert.Equal(row["Reasons"], string.Join(ReasonSeparator, stored.Reasons));
+        }
+    }
+
+    [Given("I have re-checked the last uploaded file with the corrections:")]
+    public async Task GivenIHaveRecheckedTheLastUploadedFileWithTheCorrections(DataTable rows)
+    {
+        var fileId = state.LastUploadedFileId;
+        await corrections.RecheckAsync(fileId, await corrections.ToCorrectionsAsync(fileId, rows));
+        Assert.Equal(HttpStatusCode.OK, state.LastResponse.StatusCode);
+    }
+
+    [When("I re-check the last uploaded file without corrections")]
+    public Task WhenIRecheckTheLastUploadedFileWithoutCorrections() => corrections.RecheckAsync(state.LastUploadedFileId, []);
 
     private async Task AssertFailedAsync(string failureKind, string reason)
     {

@@ -193,7 +193,7 @@ public static class TestDatabase
     public static async Task<IReadOnlyList<StoredFileRow>> GetFileRowsAsync(Guid fileId)
     {
         const string sql = """
-            SELECT row_number AS RowNumber, reference, transaction_date AS TransactionDate, account_number AS AccountNumber,
+            SELECT id, row_number AS RowNumber, reference, transaction_date AS TransactionDate, account_number AS AccountNumber,
                    description, amount, transaction_type AS TransactionType, currency,
                    column_count AS ColumnCount, extra_values AS ExtraValues, reasons
             FROM file_rows
@@ -258,6 +258,7 @@ public sealed class StoredProcessingStage
 
 public sealed class StoredFileRow
 {
+    public Guid Id { get; init; }
     public int RowNumber { get; init; }
     public string Reference { get; init; } = string.Empty;
     public string TransactionDate { get; init; } = string.Empty;

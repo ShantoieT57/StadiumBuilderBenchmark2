@@ -18,4 +18,8 @@ internal sealed class ProcessingHistory(FileProcessingUnit unit, TimeProvider ti
     /// <summary>Records a stage that has started and is still under way.</summary>
     public Task StartAsync(ProcessingStage stage) =>
         unit.RecordStageAsync(stage, timeProvider.GetUtcNow(), finishedAt: null, cancellationToken);
+
+    /// <summary>Finishes a stage that was recorded as still under way.</summary>
+    public Task FinishAsync(ProcessingStage stage) =>
+        unit.FinishStageAsync(stage, timeProvider.GetUtcNow(), cancellationToken);
 }

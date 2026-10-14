@@ -11,8 +11,7 @@ namespace BenchmarkApp2.Services.FileProcessor;
 /// </summary>
 public sealed class Processor(FileProcessingRepository repository, TimeProvider timeProvider, ILogger<Processor> logger)
 {
-    /// <summary>Who loaded transactions are created and last changed by (FP-08).</summary>
-    public const string SystemUser = "System";
+    private readonly CheckAndLoadStages _checkAndLoad = new(timeProvider, logger);
 
     /// <summary>
     /// Returns files left in Processing by an interrupted processor to Uploaded, so they are
@@ -55,16 +54,16 @@ public sealed class Processor(FileProcessingRepository repository, TimeProvider 
 
     private async Task ProcessAsync(Guid fileId, CancellationToken cancellationToken)
     {
-        await using var unit = await repository.BeginProcessingAsync(fileId, cancellationToken);
-        if (unit is null)
+        if (await repository.BeginProcessingAsync(fileId, cancellationToken) is not { } started)
         {
             return;
         }
+        await using var unit = started.Unit;
         var history = new ProcessingHistory(unit, timeProvider, cancellationToken);
 
         var records = await history.RunAsync(ProcessingStage.Receive, async () =>
         {
-            var fileRecords = TransactionFileReader.ReadRecords(unit.File.Content);
+            var fileRecords = TransactionFileReader.ReadRecords(started.File.Content);
             await unit.SetRowCountAsync(fileRecords.Count, cancellationToken);
             return fileRecords;
         });
@@ -81,39 +80,7 @@ public sealed class Processor(FileProcessingRepository repository, TimeProvider 
         }
 
         var rows = await history.RunAsync(ProcessingStage.ReadRows, () => TransactionFileReader.ReadRows(records));
-        await CheckAndLoadAsync(unit, history, rows, cancellationToken);
+        await _checkAndLoad.RunAsync(unit, history, rows, cancellationToken);
         await unit.CommitAsync(cancellationToken);
     }
-
-    /// <summary>
-    /// Stages 4 to 7 over a file's rows. If any row is invalid, the file waits for corrections with
-    /// every row kept and nothing loaded (FP-06); otherwise the valid rows are loaded and the file is
-    /// Completed.
-    /// </summary>
-    private async Task CheckAndLoadAsync(FileProcessingUnit unit, ProcessingHistory history, IReadOnlyList<FileRowValues> rows, CancellationToken cancellationToken)
-    {
-        var converted = await history.RunAsync(ProcessingStage.ConvertTypes, () => RowChecker.Convert(rows));
-        var checkedRows = await history.RunAsync(ProcessingStage.CheckRows, () => RowChecker.Check(converted));
-
-        var invalidRowCount = checkedRows.Count(row => row.IsInvalid);
-        if (invalidRowCount > 0)
-        {
-            await history.StartAsync(ProcessingStage.WaitForCorrections);
-            await unit.SaveRowsAsync(checkedRows.Select(row => row.ToRecord()).ToList(), cancellationToken);
-            await unit.MarkFailedAsync(FileFailureKind.InvalidRows, DescribeInvalidRows(invalidRowCount), timeProvider.GetUtcNow(), cancellationToken);
-            logger.LogInformation("File {FileId} has {InvalidRowCount} invalid row(s) and waits for corrections.", unit.File.Id, invalidRowCount);
-            return;
-        }
-
-        var toLoad = checkedRows.Where(row => !row.IsIgnored).Select(row => row.ToTransaction()).ToList();
-        var loaded = await history.RunAsync(ProcessingStage.Load, () =>
-            unit.InsertTransactionsAsync(toLoad, SystemUser, timeProvider.GetUtcNow(), cancellationToken));
-
-        var counts = new FileLoadCounts(loaded, toLoad.Count - loaded, checkedRows.Count - toLoad.Count);
-        await unit.MarkCompletedAsync(counts, timeProvider.GetUtcNow(), cancellationToken);
-        logger.LogInformation("File {FileId} completed: {Loaded} loaded, {SkippedExisting} skipped as existing, {IgnoredEmptyReference} ignored.",
-            unit.File.Id, counts.Loaded, counts.SkippedExisting, counts.IgnoredEmptyReference);
-    }
-
-    private static string DescribeInvalidRows(int count) => count == 1 ? "File has 1 invalid row" : $"File has {count} invalid rows";
 }

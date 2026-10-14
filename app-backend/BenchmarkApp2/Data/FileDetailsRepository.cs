@@ -30,8 +30,15 @@ public sealed record ProcessingStageRecord(string Stage, DateTime StartedAt, Dat
 /// <summary>A file's original content, which is null once it has been discarded.</summary>
 public sealed record FileContentRecord(string FileName, byte[]? Content, DateTime? CancelledAt);
 
-/// <summary>Whether a file waits for corrections, as needed to decide whether its invalid rows can be listed.</summary>
-public sealed record FileCorrectionStateRecord(string Status, string? FailureKind, DateTime? CancelledAt);
+/// <summary>What decides whether a file waits for corrections, so its invalid rows can be listed and corrected.</summary>
+public sealed record FileCorrectionStateRecord(string Status, string? FailureKind, DateTime? CancelledAt)
+{
+    /// <summary>A file waits for corrections while it is Failed because of invalid rows and is not cancelled (FS-02, FX-04).</summary>
+    public bool IsWaitingForCorrections =>
+        Status == FileStatusValue.Failed
+        && FailureKind == nameof(FileFailureKind.InvalidRows)
+        && CancelledAt is null;
+}
 
 /// <summary>An invalid row kept for corrections, with its original column values and every reason it failed.</summary>
 public sealed class InvalidRowRecord

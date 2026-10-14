@@ -5,27 +5,28 @@ using Npgsql;
 namespace BenchmarkApp2.Data;
 
 /// <summary>
-/// The database work of processing one claimed file, done in a single transaction so that a crash
-/// or error never leaves a partial load, half-kept rows or a partial processing history. The file
-/// row is locked (<c>FOR NO KEY UPDATE</c>) until the unit is committed or disposed, which keeps
-/// recovery from taking the file away from a live processor. Disposing without committing rolls
-/// everything back.
+/// The database work of processing one file, done in a single transaction so that a crash or error
+/// never leaves a partial load, half-kept rows or a partial processing history. The file row is
+/// locked (<c>FOR NO KEY UPDATE</c>) until the unit is committed or disposed, which keeps recovery
+/// from taking a file away from a live processor, and lets only one correction or re-check of a
+/// file run at a time. Disposing without committing rolls everything back.
 /// </summary>
 public sealed class FileProcessingUnit : IAsyncDisposable
 {
     private readonly NpgsqlConnection _connection;
     private readonly NpgsqlTransaction _transaction;
 
-    private FileProcessingUnit(NpgsqlConnection connection, NpgsqlTransaction transaction, FileToProcess file)
+    private FileProcessingUnit(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid fileId)
     {
         _connection = connection;
         _transaction = transaction;
-        File = file;
+        FileId = fileId;
     }
 
-    public FileToProcess File { get; }
+    public Guid FileId { get; }
 
-    internal static async Task<FileProcessingUnit?> BeginAsync(NpgsqlDataSource dataSource, Guid fileId, CancellationToken cancellationToken)
+    /// <summary>Starts processing a claimed file, or returns null when the file is no longer in Processing.</summary>
+    internal static Task<(FileProcessingUnit Unit, FileToProcess File)?> BeginProcessingAsync(NpgsqlDataSource dataSource, Guid fileId, CancellationToken cancellationToken)
     {
         const string sql = $"""
             SELECT id, file_name AS FileName, content
@@ -33,16 +34,39 @@ public sealed class FileProcessingUnit : IAsyncDisposable
             WHERE id = @fileId AND status = '{FileStatusValue.Processing}'
             FOR NO KEY UPDATE
             """;
+        return BeginAsync<FileToProcess>(dataSource, sql, fileId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Starts correcting a file whatever its status, and returns it with what decides whether it
+    /// waits for corrections, or null when no file has the id. A correction that started first is
+    /// waited for, and the state returned is the one it left.
+    /// </summary>
+    internal static Task<(FileProcessingUnit Unit, FileCorrectionStateRecord State)?> BeginCorrectionAsync(NpgsqlDataSource dataSource, Guid fileId, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT status, failure_kind AS FailureKind, cancelled_at AS CancelledAt
+            FROM files
+            WHERE id = @fileId
+            FOR NO KEY UPDATE
+            """;
+        return BeginAsync<FileCorrectionStateRecord>(dataSource, sql, fileId, cancellationToken);
+    }
+
+    /// <summary>Opens the transaction and locks the file with <paramref name="lockSql"/>, which reads one <typeparamref name="T"/> or nothing.</summary>
+    private static async Task<(FileProcessingUnit Unit, T File)?> BeginAsync<T>(NpgsqlDataSource dataSource, string lockSql, Guid fileId, CancellationToken cancellationToken)
+        where T : class
+    {
         var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         NpgsqlTransaction? transaction = null;
         try
         {
             transaction = await connection.BeginTransactionAsync(cancellationToken);
-            var file = await connection.QuerySingleOrDefaultAsync<FileToProcess>(
-                new CommandDefinition(sql, new { fileId }, transaction, cancellationToken: cancellationToken));
+            var file = await connection.QuerySingleOrDefaultAsync<T>(
+                new CommandDefinition(lockSql, new { fileId }, transaction, cancellationToken: cancellationToken));
             if (file is not null)
             {
-                return new FileProcessingUnit(connection, transaction, file);
+                return (new FileProcessingUnit(connection, transaction, fileId), file);
             }
         }
         catch
@@ -56,7 +80,7 @@ public sealed class FileProcessingUnit : IAsyncDisposable
     }
 
     public Task SetRowCountAsync(int rowCount, CancellationToken cancellationToken) =>
-        ExecuteAsync("UPDATE files SET row_count = @rowCount WHERE id = @FileId", new { rowCount, FileId = File.Id }, cancellationToken);
+        ExecuteAsync("UPDATE files SET row_count = @rowCount WHERE id = @FileId", new { rowCount, FileId }, cancellationToken);
 
     /// <summary>
     /// The name of the earliest file received before this one with exactly the same content that
@@ -80,7 +104,7 @@ public sealed class FileProcessingUnit : IAsyncDisposable
             LIMIT 1
             """;
         return _connection.QuerySingleOrDefaultAsync<string?>(
-            new CommandDefinition(sql, new { FileId = File.Id }, _transaction, cancellationToken: cancellationToken));
+            new CommandDefinition(sql, new { FileId }, _transaction, cancellationToken: cancellationToken));
     }
 
     /// <summary>Records a stage in the file's processing history. A stage still under way has no finish time.</summary>
@@ -90,12 +114,39 @@ public sealed class FileProcessingUnit : IAsyncDisposable
             INSERT INTO file_processing_stages (file_id, stage, started_at, finished_at)
             VALUES (@FileId, @Stage, @startedAt, @finishedAt)
             """;
-        return ExecuteAsync(sql, new { FileId = File.Id, Stage = stage.ToString(), startedAt, finishedAt }, cancellationToken);
+        return ExecuteAsync(sql, new { FileId, Stage = stage.ToString(), startedAt, finishedAt }, cancellationToken);
+    }
+
+    /// <summary>Gives the stage that is still under way in the file's processing history its finish time.</summary>
+    public Task FinishStageAsync(ProcessingStage stage, DateTimeOffset finishedAt, CancellationToken cancellationToken)
+    {
+        const string sql = """
+            UPDATE file_processing_stages
+            SET finished_at = @finishedAt
+            WHERE file_id = @FileId AND stage = @Stage AND finished_at IS NULL
+            """;
+        return ExecuteAsync(sql, new { FileId, Stage = stage.ToString(), finishedAt }, cancellationToken);
+    }
+
+    /// <summary>Every row kept for the file, in file order.</summary>
+    public async Task<IReadOnlyList<KeptFileRow>> GetRowsAsync(CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT id, row_number AS RowNumber, reference, transaction_date AS TransactionDate,
+                   account_number AS AccountNumber, description, amount, transaction_type AS TransactionType,
+                   currency, column_count AS ColumnCount, extra_values AS ExtraValues, reasons
+            FROM file_rows
+            WHERE file_id = @FileId
+            ORDER BY row_number
+            """;
+        return (await _connection.QueryAsync<KeptFileRow>(
+            new CommandDefinition(sql, new { FileId }, _transaction, cancellationToken: cancellationToken))).ToList();
     }
 
     /// <summary>
-    /// Keeps every row of the file with its original values and reasons, replacing any rows kept
-    /// before. The array columns are passed as JSON because rows of arrays cannot be unnested.
+    /// Keeps the rows with their values and reasons. A row already kept (the same row number) is
+    /// updated in place, so it keeps its id (FC-02). The array columns are passed as JSON because
+    /// rows of arrays cannot be unnested.
     /// </summary>
     public async Task SaveRowsAsync(IReadOnlyList<FileRowRecord> rows, CancellationToken cancellationToken)
     {
@@ -110,11 +161,16 @@ public sealed class FileProcessingUnit : IAsyncDisposable
                         @Amounts, @TransactionTypes, @Currencies, @ColumnCounts, @ExtraValues, @Reasons)
                 AS r(row_number, reference, transaction_date, account_number, description,
                      amount, transaction_type, currency, column_count, extra_values, reasons)
+            ON CONFLICT (file_id, row_number) DO UPDATE
+            SET reference = EXCLUDED.reference, transaction_date = EXCLUDED.transaction_date,
+                account_number = EXCLUDED.account_number, description = EXCLUDED.description,
+                amount = EXCLUDED.amount, transaction_type = EXCLUDED.transaction_type,
+                currency = EXCLUDED.currency, column_count = EXCLUDED.column_count,
+                extra_values = EXCLUDED.extra_values, reasons = EXCLUDED.reasons
             """;
-        await ExecuteAsync("DELETE FROM file_rows WHERE file_id = @FileId", new { FileId = File.Id }, cancellationToken);
         await ExecuteAsync(sql, new
         {
-            FileId = File.Id,
+            FileId,
             RowNumbers = rows.Select(row => row.Values.RowNumber).ToArray(),
             References = rows.Select(row => row.Values.Reference).ToArray(),
             TransactionDates = rows.Select(row => row.Values.TransactionDate).ToArray(),
@@ -128,6 +184,10 @@ public sealed class FileProcessingUnit : IAsyncDisposable
             Reasons = rows.Select(row => JsonSerializer.Serialize(row.Reasons)).ToArray(),
         }, cancellationToken);
     }
+
+    /// <summary>Removes the rows kept for the file, which are needed only while it waits for corrections.</summary>
+    public Task DiscardRowsAsync(CancellationToken cancellationToken) =>
+        ExecuteAsync("DELETE FROM file_rows WHERE file_id = @FileId", new { FileId }, cancellationToken);
 
     /// <summary>
     /// Loads the transactions with the status Imported and returns how many were inserted. A row
@@ -156,7 +216,7 @@ public sealed class FileProcessingUnit : IAsyncDisposable
             """;
         return await ExecuteAsync(sql, new
         {
-            FileId = File.Id,
+            FileId,
             changedBy,
             now,
             References = transactions.Select(t => t.Reference).ToArray(),
@@ -178,7 +238,7 @@ public sealed class FileProcessingUnit : IAsyncDisposable
                 ignored_empty_reference_count = @IgnoredEmptyReference, last_processed_at = @now
             WHERE id = @FileId
             """;
-        return ExecuteAsync(sql, new { FileId = File.Id, counts.Loaded, counts.SkippedExisting, counts.IgnoredEmptyReference, now }, cancellationToken);
+        return ExecuteAsync(sql, new { FileId, counts.Loaded, counts.SkippedExisting, counts.IgnoredEmptyReference, now }, cancellationToken);
     }
 
     public Task MarkFailedAsync(FileFailureKind failureKind, string failureReason, DateTimeOffset now, CancellationToken cancellationToken)
@@ -189,7 +249,7 @@ public sealed class FileProcessingUnit : IAsyncDisposable
                 last_processed_at = @now
             WHERE id = @FileId
             """;
-        return ExecuteAsync(sql, new { FileId = File.Id, FailureKind = failureKind.ToString(), failureReason, now }, cancellationToken);
+        return ExecuteAsync(sql, new { FileId, FailureKind = failureKind.ToString(), failureReason, now }, cancellationToken);
     }
 
     public Task CommitAsync(CancellationToken cancellationToken) => _transaction.CommitAsync(cancellationToken);

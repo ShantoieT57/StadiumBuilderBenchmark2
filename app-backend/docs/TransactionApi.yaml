@@ -17,7 +17,7 @@ tags:
   - name: Authentication
     description: Signing in, identifying the signed-in person, and signing out.
   - name: Files
-    description: Uploading transaction files (importers only), listing files, and a file's details, original content and invalid rows.
+    description: Uploading transaction files (importers only), listing files, a file's details, original content and invalid rows, and correcting and re-checking a file (importers only).
   - name: Dashboard
     description: The figures shown above the dashboard's file list.
 paths:
@@ -371,13 +371,100 @@ paths:
         '404':
           $ref: '#/components/responses/FileNotFound'
         '409':
-          description: >-
-            The file is not waiting for corrections: it is not Failed because of invalid rows, or it
-            has been cancelled.
+          $ref: '#/components/responses/NotWaitingForCorrections'
+    patch:
+      tags: [Files]
+      operationId: SaveCorrections
+      summary: Save corrected values on invalid rows without checking the file again (FC-02, importers only).
+      description: >-
+        Replaces the values of one or more invalid rows, identified by their row ids, with the values
+        given, without checking the file again. Every one of the seven columns is replaced, so send
+        the row's full set of values (an empty string for an empty value). A corrected row always has
+        exactly the seven expected columns, so any surplus values the row had in the file are dropped.
+        The rows keep the reasons found by the last check until the file is checked again
+        (`POST /files/{fileId}/recheck`), so they stay invalid and can be corrected again. All the
+        corrections are saved together or not at all. Only the file's invalid rows can be corrected.
+        The original uploaded file is never changed (FD-05).
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RowCorrections'
+      responses:
+        '200':
+          description: The invalid rows, with the saved values and the reasons from the last check.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/InvalidRowList'
+        '400':
+          $ref: '#/components/responses/InvalidCorrections'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/FileNotFound'
+        '409':
+          $ref: '#/components/responses/NotWaitingForCorrections'
+  /files/{fileId}/recheck:
+    post:
+      tags: [Files]
+      operationId: RecheckFile
+      summary: Save any corrections and check the file again (FC-02, FC-03, FS-02, importers only).
+      description: >-
+        Saves the corrected values given for invalid rows (as `PATCH /files/{fileId}/invalid-rows`
+        does) and then checks the file again, all in one database transaction, and returns the
+        outcome straight away. `corrections` may be empty to check the file again with the values
+        already saved.
+
+
+        Checking again repeats stages 4 to 7 (Convert types, Check rows, then Wait for corrections or
+        Load) over every row of the file, including the rows that were already valid, using the
+        corrected values; so a correction can also clear or cause "Duplicate Reference In File" on
+        other rows. The duplicate-file check is not repeated. The open Wait for corrections stage is
+        finished and the new stages are added to the processing history.
+
+
+        If every row now passes, the file is loaded as in stage 7 (status Imported, created by
+        "System", rows whose reference already exists ignoring case are skipped and rows with an
+        empty reference are ignored), the loaded / skipped / ignored counts are stored and the file
+        becomes Completed. If any row still fails, nothing is loaded, the file stays Failed (invalid
+        rows) with its failure reason updated to the new count, and `invalidRows` lists the rows that
+        still fail and how many remain. Either way the file's last processed time is updated.
+
+
+        Only one correction or re-check of a file runs at a time: a request made while another is
+        under way waits for it and is then refused with 409 if the file is no longer waiting for
+        corrections. The original uploaded file is never changed (FD-05).
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecheckRequest'
+      responses:
+        '200':
+          description: The file was checked again; `status` says whether it loaded or still has invalid rows.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecheckResult'
+        '400':
+          $ref: '#/components/responses/InvalidCorrections'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/FileNotFound'
+        '409':
+          $ref: '#/components/responses/NotWaitingForCorrections'
 components:
   parameters:
     FileId:
@@ -395,6 +482,28 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    NotWaitingForCorrections:
+      description: >-
+        The file is not waiting for corrections ("This file is not waiting for corrections."): it is
+        not Failed because of invalid rows (for example it has already been loaded), or it has been
+        cancelled.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InvalidCorrections:
+      description: >-
+        The corrections cannot be applied. A row id that is not one of the file's invalid rows (a
+        valid row, a row of another file or an unknown id) is refused with "Only the file's invalid
+        rows can be corrected."; a row given more than once is refused with "Each row can be
+        corrected only once in a request."; a missing value is reported as a validation problem.
+        Nothing is saved.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - $ref: '#/components/schemas/ValidationProblem'
     Forbidden:
       description: >-
         The signed-in person's role does not allow this request. The `message`
@@ -797,6 +906,66 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/InvalidRow'
+    RowCorrection:
+      type: object
+      description: >-
+        The corrected values of one invalid row. All seven columns are given and replace the row's
+        values; an empty string is an empty value.
+      required: [id, reference, transactionDate, accountNumber, description, amount, transactionType, currency]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The id of the invalid row, as listed by `GET /files/{fileId}/invalid-rows`.
+        reference:
+          type: string
+        transactionDate:
+          type: string
+        accountNumber:
+          type: string
+        description:
+          type: string
+        amount:
+          type: string
+        transactionType:
+          type: string
+        currency:
+          type: string
+    RowCorrections:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          minItems: 1
+          description: The corrected rows, each at most once.
+          items:
+            $ref: '#/components/schemas/RowCorrection'
+    RecheckRequest:
+      type: object
+      required: [corrections]
+      properties:
+        corrections:
+          type: array
+          description: >-
+            Corrected rows to save before checking again, each at most once. May be empty to check
+            again with the values already saved.
+          items:
+            $ref: '#/components/schemas/RowCorrection'
+    RecheckResult:
+      type: object
+      description: >-
+        The outcome of checking a file again: its new status (Completed or Failed), its details as
+        `GET /files/{fileId}` returns them, and `invalidRows`, the rows that still fail and how many
+        remain (empty, with a count of 0, when the file loaded and is Completed).
+      required: [status, file, invalidRows]
+      properties:
+        status:
+          $ref: '#/components/schemas/FileStatus'
+        file:
+          $ref: '#/components/schemas/FileDetails'
+        invalidRows:
+          $ref: '#/components/schemas/InvalidRowList'
     ValidationProblem:
       type: object
       description: RFC 7807 validation problem details, with the failing fields under `errors`.

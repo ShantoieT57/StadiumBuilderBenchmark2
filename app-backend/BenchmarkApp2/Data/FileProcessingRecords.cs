@@ -27,6 +27,31 @@ public sealed record FileRowValues(
 /// <summary>A row kept for corrections, with every reason it failed (empty when it is valid or ignored).</summary>
 public sealed record FileRowRecord(FileRowValues Values, IReadOnlyList<string> Reasons);
 
+/// <summary>
+/// A row kept for corrections as stored, with its stable id. A class rather than a record, because
+/// Dapper reads a <c>text[]</c> column into a property but not into a constructor parameter.
+/// </summary>
+public sealed class KeptFileRow
+{
+    public Guid Id { get; init; }
+    public int RowNumber { get; init; }
+    public string Reference { get; init; } = string.Empty;
+    public string TransactionDate { get; init; } = string.Empty;
+    public string AccountNumber { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public string Amount { get; init; } = string.Empty;
+    public string TransactionType { get; init; } = string.Empty;
+    public string Currency { get; init; } = string.Empty;
+    public int ColumnCount { get; init; }
+    public string[] ExtraValues { get; init; } = [];
+    public string[] Reasons { get; init; } = [];
+
+    public bool IsInvalid => Reasons.Length > 0;
+
+    public FileRowValues ToValues() => new(
+        RowNumber, Reference, TransactionDate, AccountNumber, Description, Amount, TransactionType, Currency, ColumnCount, ExtraValues);
+}
+
 /// <summary>A valid row converted into the values a transaction is loaded with.</summary>
 public sealed record NewTransactionRecord(
     string Reference,

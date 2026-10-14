@@ -72,12 +72,6 @@ public static class FileDetailsMapper
     /// <summary>The original can be downloaded while it is kept, which is until the file is cancelled (FX-04).</summary>
     public static bool CanDownload(bool hasContent, DateTime? cancelledAt) => hasContent && cancelledAt is null;
 
-    /// <summary>A file waits for corrections while it is Failed because of invalid rows and is not cancelled (FS-02, FX-04).</summary>
-    public static bool IsWaitingForCorrections(FileCorrectionStateRecord file) =>
-        file.Status == FileStatusValue.Failed
-        && file.FailureKind == nameof(FileFailureKind.InvalidRows)
-        && file.CancelledAt is null;
-
     /// <summary>PostgreSQL returns <c>timestamptz</c> values as UTC.</summary>
     private static DateTimeOffset AsUtc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
 

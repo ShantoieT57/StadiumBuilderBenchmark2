@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using BenchmarkApp2.Data;
+using BenchmarkApp2.Services.FileProcessor;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -22,12 +23,15 @@ public sealed class Controller(
     SessionManager sessionManager,
     FileReceiver fileReceiver,
     DashboardRepository dashboardRepository,
-    FileDetailsRepository fileDetailsRepository) : ControllerBase
+    FileDetailsRepository fileDetailsRepository,
+    Corrector corrector) : ControllerBase
 {
     private const string CsvContentType = "text/csv";
     private const string FileNotFoundMessage = "File not found";
     private const string FileContentDiscardedMessage = "The original file is no longer available because the file has been cancelled.";
     private const string NotWaitingForCorrectionsMessage = "This file is not waiting for corrections.";
+    private const string NotAnInvalidRowMessage = "Only the file's invalid rows can be corrected.";
+    private const string RowRepeatedMessage = "Each row can be corrected only once in a request.";
     private const string InvalidCredentialsMessage = "Invalid email or password";
     private const string InvalidFileNameMessage = "Invalid file name";
     private const string NotCsvFileMessage = "Only .csv files can be uploaded. Please choose a .csv file.";
@@ -196,7 +200,7 @@ public sealed class Controller(
         {
             return FileNotFound();
         }
-        if (!FileDetailsMapper.IsWaitingForCorrections(file))
+        if (!file.IsWaitingForCorrections)
         {
             return Conflict(new ErrorResponse { Message = NotWaitingForCorrectionsMessage });
         }
@@ -205,7 +209,61 @@ public sealed class Controller(
         return FileDetailsMapper.ToInvalidRowList(rows);
     }
 
+    /// <summary>Importers only. Saves corrected values on invalid rows without checking the file again (FC-02).</summary>
+    [Authorize(Roles = nameof(UserRole.Importer))]
+    public override async Task<ActionResult<InvalidRowList>> SaveCorrections(Guid fileId, RowCorrections body, CancellationToken cancellationToken = default)
+    {
+        var outcome = await corrector.SaveAsync(fileId, ToCorrectedRows(body.Rows), cancellationToken);
+        if (RefuseCorrection(outcome) is { } refusal)
+        {
+            return refusal;
+        }
+
+        return FileDetailsMapper.ToInvalidRowList(await fileDetailsRepository.GetInvalidRowsAsync(fileId, cancellationToken));
+    }
+
+    /// <summary>
+    /// Importers only. Saves any corrections and checks the file again in the request (FC-02, FC-03),
+    /// then returns the file as it now is and the rows that still fail.
+    /// </summary>
+    [Authorize(Roles = nameof(UserRole.Importer))]
+    public override async Task<ActionResult<RecheckResult>> RecheckFile(Guid fileId, RecheckRequest body, CancellationToken cancellationToken = default)
+    {
+        var outcome = await corrector.RecheckAsync(fileId, ToCorrectedRows(body.Corrections), cancellationToken);
+        if (RefuseCorrection(outcome) is { } refusal)
+        {
+            return refusal;
+        }
+
+        var file = await fileDetailsRepository.GetDetailsAsync(fileId, cancellationToken);
+        var history = await fileDetailsRepository.GetProcessingHistoryAsync(fileId, cancellationToken);
+        var stillInvalid = outcome == CorrectionOutcome.StillInvalid
+            ? await fileDetailsRepository.GetInvalidRowsAsync(fileId, cancellationToken)
+            : [];
+        return new RecheckResult
+        {
+            Status = outcome == CorrectionOutcome.Completed ? FileStatus.Completed : FileStatus.Failed,
+            File = FileDetailsMapper.ToFileDetails(file!, history),
+            InvalidRows = FileDetailsMapper.ToInvalidRowList(stillInvalid),
+        };
+    }
+
     private NotFoundObjectResult FileNotFound() => NotFound(new ErrorResponse { Message = FileNotFoundMessage });
+
+    /// <summary>The response refusing a correction, or null when the correction was made.</summary>
+    private ObjectResult? RefuseCorrection(CorrectionOutcome outcome) => outcome switch
+    {
+        CorrectionOutcome.FileNotFound => FileNotFound(),
+        CorrectionOutcome.NotWaitingForCorrections => Conflict(new ErrorResponse { Message = NotWaitingForCorrectionsMessage }),
+        CorrectionOutcome.NotAnInvalidRow => BadRequest(new ErrorResponse { Message = NotAnInvalidRowMessage }),
+        CorrectionOutcome.RowRepeated => BadRequest(new ErrorResponse { Message = RowRepeatedMessage }),
+        _ => null,
+    };
+
+    private static List<CorrectedRow> ToCorrectedRows(IEnumerable<RowCorrection> rows) => rows
+        .Select(row => new CorrectedRow(
+            row.Id, row.Reference, row.TransactionDate, row.AccountNumber, row.Description, row.Amount, row.TransactionType, row.Currency))
+        .ToList();
 
     private static CurrentUser ToCurrentUser(string name, string email, string role) => new()
     {
