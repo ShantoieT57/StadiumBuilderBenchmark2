@@ -12,6 +12,7 @@ public sealed class CommonStepDefinitions(
     TransactionApiFixture api,
     FileProcessorFixture fileProcessor,
     FileUploader uploader,
+    FileSeeder seeder,
     ApiScenarioState state,
     ManualTimeProvider clock)
 {
@@ -103,6 +104,9 @@ public sealed class CommonStepDefinitions(
     [Given("I have uploaded a file named {string} with the rows:")]
     public Task GivenIHaveUploadedAFileNamedWithTheRows(string fileName, DataTable rows) =>
         uploader.UploadAndRememberAsync(TestFiles.ToCsv(rows), fileName);
+
+    [Given("these files exist:")]
+    public Task GivenTheseFilesExist(DataTable files) => seeder.SeedAsync(files);
 
     [Given("the file processor has processed the waiting files")]
     [When("the file processor processes the waiting files")]

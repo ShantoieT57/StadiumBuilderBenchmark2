@@ -17,8 +17,28 @@ tags:
   - name: Authentication
     description: Signing in, identifying the signed-in person, and signing out.
   - name: Files
-    description: Uploading transaction files (importers only).
+    description: Uploading transaction files (importers only) and listing files.
+  - name: Dashboard
+    description: The figures shown above the dashboard's file list.
 paths:
+  /dashboard/summary:
+    get:
+      tags: [Dashboard]
+      operationId: GetDashboardSummary
+      summary: Get the number of files and of transactions in each status.
+      description: >-
+        Counts the files in each status, and the transactions that are Imported,
+        Approved and Rejected, over every file that is not cancelled (DB-01).
+        Available to every signed-in person.
+      responses:
+        '200':
+          description: The dashboard figures.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummary'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
   /auth/sign-in:
     post:
       tags: [Authentication]
@@ -95,6 +115,117 @@ paths:
         '204':
           description: Signed out. The session cookie is cleared.
   /files:
+    get:
+      tags: [Files]
+      operationId: ListFiles
+      summary: List files one page at a time, sorted and filtered (DB-02..DB-06).
+      description: >-
+        Returns one page of files with the total number of files that match the
+        filters. Available to every signed-in person. By default the most recently
+        processed file comes first. A file that has not been processed yet has no
+        `lastProcessedAt` (null) and counts as more recent than any processed file,
+        so files waiting to be processed come first. Any column can be sorted on,
+        one at a time. Files with the same value in the sorted column are ordered
+        by the order in which they were received (in the same direction), so
+        paging is deterministic. Values that are not known yet (null) sort after
+        every other value in ascending order and before them in descending order.
+        All filters combine. An empty result is an empty `items` list with a
+        `totalCount` of 0. Unknown or invalid query values are refused with 400.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: The 1-based page number. A page past the last page is empty.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          description: The number of files per page; one of 5, 10, 20 or 50.
+          schema:
+            type: integer
+            format: int32
+            default: 20
+        - name: sortBy
+          in: query
+          required: false
+          description: The column to sort on. Defaults to `LastProcessedAt`.
+          schema:
+            $ref: '#/components/schemas/FileSortColumn'
+        - name: sortDirection
+          in: query
+          required: false
+          description: >-
+            The sort direction. Defaults to `Desc` when sorting on `LastProcessedAt`
+            (the default column), and to `Asc` for every other column.
+          schema:
+            $ref: '#/components/schemas/SortDirection'
+        - name: status
+          in: query
+          required: false
+          description: Lists only the files with this status.
+          schema:
+            $ref: '#/components/schemas/FileStatus'
+        - name: fileName
+          in: query
+          required: false
+          description: >-
+            Lists only the files whose name contains this text, ignoring upper and
+            lower case. Every character is matched literally (no wildcards).
+          schema:
+            type: string
+        - name: processedFrom
+          in: query
+          required: false
+          description: >-
+            Lists only the files last processed at or after this date and time
+            (inclusive). A file that has not been processed yet never matches a
+            process-date filter. To filter by whole days, send the start of the
+            first day in the person's time zone, e.g. `2026-04-15T00:00:00+02:00`
+            (URL-encode the `+` as `%2B`).
+          schema:
+            type: string
+            format: date-time
+        - name: processedTo
+          in: query
+          required: false
+          description: >-
+            Lists only the files last processed at or before this date and time
+            (inclusive). To filter by whole days, send the end of the last day in
+            the person's time zone, e.g. `2026-04-15T23:59:59.999+02:00`. Must not
+            be earlier than `processedFrom`.
+          schema:
+            type: string
+            format: date-time
+        - name: visibility
+          in: query
+          required: false
+          description: Which files to list by whether they are cancelled. Defaults to `Active` (DB-06).
+          schema:
+            $ref: '#/components/schemas/FileVisibility'
+      responses:
+        '200':
+          description: One page of files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilePage'
+        '400':
+          description: >-
+            A query value is invalid: an unknown sort column, sort direction,
+            status or visibility, a page below 1, a page size other than 5, 10,
+            20 or 50, a date and time that cannot be read, or `processedFrom`
+            later than `processedTo`. The failing query parameters are listed
+            under `errors`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
     post:
       tags: [Files]
       operationId: UploadFile
@@ -239,6 +370,126 @@ components:
         loaded. Completed - the transactions are loaded and ready for approval.
         Failed - a duplicate, or invalid rows are waiting for corrections.
       enum: [Uploaded, Processing, Completed, Failed]
+    FailureKind:
+      type: string
+      description: >-
+        Why a Failed file failed. Duplicate - it has the same content as an
+        earlier file and stays failed (FS-01). InvalidRows - some rows are
+        invalid and are waiting for corrections (FS-02).
+      enum: [Duplicate, InvalidRows]
+    FileSortColumn:
+      type: string
+      description: >-
+        A column of the file list to sort on. `FileName` sorts ignoring upper and
+        lower case. `Status` sorts in the order of a file's progress: Uploaded,
+        Processing, Completed, Failed.
+      enum: [FileName, LastProcessedAt, RowCount, Status, ImportedCount]
+    SortDirection:
+      type: string
+      enum: [Asc, Desc]
+    FileVisibility:
+      type: string
+      description: >-
+        Active - only files that are not cancelled. Cancelled - only cancelled
+        files. Both - every file.
+      enum: [Active, Cancelled, Both]
+    FileListItem:
+      type: object
+      required: [id, fileName, status, failureKind, failureReason, lastProcessedAt, rowCount, importedCount, isCancelled]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+          example: transactions_2026-04-15.csv
+        status:
+          $ref: '#/components/schemas/FileStatus'
+        failureKind:
+          description: Why the file failed; null unless the status is Failed.
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/FailureKind'
+        failureReason:
+          type: string
+          nullable: true
+          description: The message describing why the file failed; null unless the status is Failed.
+        lastProcessedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When processing of the file last finished; null while it has never been processed.
+        rowCount:
+          type: integer
+          format: int32
+          nullable: true
+          description: The number of transaction rows in the file; null until the file has been read.
+        importedCount:
+          type: integer
+          format: int32
+          description: How many of the file's transactions are still Imported.
+        isCancelled:
+          type: boolean
+    FilePage:
+      type: object
+      required: [items, page, pageSize, totalCount, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileListItem'
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        totalCount:
+          type: integer
+          format: int32
+          description: The number of files that match the filters, over every page.
+        totalPages:
+          type: integer
+          format: int32
+          description: The number of pages; 0 when no file matches.
+    FileStatusCounts:
+      type: object
+      required: [uploaded, processing, completed, failed]
+      properties:
+        uploaded:
+          type: integer
+          format: int32
+        processing:
+          type: integer
+          format: int32
+        completed:
+          type: integer
+          format: int32
+        failed:
+          type: integer
+          format: int32
+    TransactionStatusCounts:
+      type: object
+      required: [imported, approved, rejected]
+      properties:
+        imported:
+          type: integer
+          format: int32
+        approved:
+          type: integer
+          format: int32
+        rejected:
+          type: integer
+          format: int32
+    DashboardSummary:
+      type: object
+      description: Counts over every file that is not cancelled (DB-01).
+      required: [files, transactions]
+      properties:
+        files:
+          $ref: '#/components/schemas/FileStatusCounts'
+        transactions:
+          $ref: '#/components/schemas/TransactionStatusCounts'
     UploadedFile:
       type: object
       required: [id, fileName, kind, status, uploadedAt]

@@ -110,6 +110,50 @@ public static class TestDatabase
         Assert.Equal(1, await connection.ExecuteAsync("UPDATE files SET cancelled_at = @now WHERE id = @fileId", new { fileId, now }));
     }
 
+    /// <summary>
+    /// Stores a file directly in the state it would have after processing, uploaded by the seeded
+    /// importer, and returns its id. Files are received in the order they are inserted.
+    /// </summary>
+    public static async Task<Guid> InsertFileAsync(SeedFile file, DateTimeOffset now)
+    {
+        const string sql = """
+            INSERT INTO files (file_name, kind, status, content, content_sha256, uploaded_by, uploaded_at,
+                               row_count, failure_kind, failure_reason, last_processed_at, cancelled_at)
+            SELECT @FileName, 'BankTransactions', @Status, @Content, sha256(@Content), id, @UploadedAt,
+                   @RowCount, @FailureKind, @FailureReason, @LastProcessedAt, @CancelledAt
+            FROM users
+            WHERE email = 'fileimporter@digiata.com'
+            RETURNING id
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return await connection.QuerySingleAsync<Guid>(sql, new
+        {
+            file.FileName,
+            file.Status,
+            Content = Guid.NewGuid().ToByteArray(),
+            UploadedAt = now,
+            file.RowCount,
+            file.FailureKind,
+            file.FailureReason,
+            file.LastProcessedAt,
+            CancelledAt = file.IsCancelled ? now : (DateTimeOffset?)null,
+        });
+    }
+
+    /// <summary>Stores a number of transactions with one status for a file, with unique references.</summary>
+    public static async Task InsertTransactionsAsync(Guid fileId, string status, int count, DateTimeOffset now)
+    {
+        const string sql = """
+            INSERT INTO transactions (file_id, reference, transaction_date, account_number, description, amount,
+                                      transaction_type, currency, status, created_by, created_at, last_changed_by, last_changed_at)
+            SELECT @fileId, @fileId::text || '-' || @status || '-' || n, '2026-04-15 08:00:00', '1234567890', 'Seeded',
+                   10.00, 'Credit', 'ZAR', @status, 'System', @now, 'System', @now
+            FROM generate_series(1, @count) AS n
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.ExecuteAsync(sql, new { fileId, status, count, now });
+    }
+
     /// <summary>Every loaded transaction, or only those loaded from one file.</summary>
     public static async Task<IReadOnlyList<StoredTransaction>> GetTransactionsAsync(Guid? fileId = null)
     {
@@ -153,6 +197,16 @@ public static class TestDatabase
         return (await connection.QueryAsync<StoredFileRow>(sql, new { fileId })).ToList();
     }
 }
+
+/// <summary>A file stored directly by a scenario, in the state it would have after processing.</summary>
+public sealed record SeedFile(
+    string FileName,
+    string Status,
+    string? FailureKind,
+    string? FailureReason,
+    DateTimeOffset? LastProcessedAt,
+    int? RowCount,
+    bool IsCancelled);
 
 public sealed class ProcessedFile
 {

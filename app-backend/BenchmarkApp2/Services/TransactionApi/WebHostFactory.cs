@@ -53,6 +53,7 @@ public static class WebHostFactory
         services.AddSingleton<SessionManager>();
         services.AddSingleton<FileRepository>();
         services.AddSingleton<FileReceiver>();
+        services.AddSingleton<DashboardRepository>();
 
         services.AddControllers().AddApplicationPart(typeof(Controller).Assembly);
         services

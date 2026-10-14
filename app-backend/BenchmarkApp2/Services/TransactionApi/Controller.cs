@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using BenchmarkApp2.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -17,7 +18,10 @@ namespace BenchmarkApp2.Services.TransactionApi;
 /// </remarks>
 [ApiController]
 [Route("")]
-public sealed class Controller(SessionManager sessionManager, FileReceiver fileReceiver) : ControllerBase
+public sealed class Controller(
+    SessionManager sessionManager,
+    FileReceiver fileReceiver,
+    DashboardRepository dashboardRepository) : ControllerBase
 {
     private const string InvalidCredentialsMessage = "Invalid email or password";
     private const string InvalidFileNameMessage = "Invalid file name";
@@ -93,6 +97,55 @@ public sealed class Controller(SessionManager sessionManager, FileReceiver fileR
             Status = FileStatus.Uploaded,
             UploadedAt = received.UploadedAt,
         });
+    }
+
+    /// <summary>Both roles. Counts over every file that is not cancelled (DB-01).</summary>
+    public override async Task<ActionResult<DashboardSummary>> GetDashboardSummary(CancellationToken cancellationToken = default)
+    {
+        var counts = await dashboardRepository.GetCountsAsync(cancellationToken);
+        return new DashboardSummary
+        {
+            Files = new FileStatusCounts
+            {
+                Uploaded = counts.FilesByStatus.GetValueOrDefault(FileStatusValue.Uploaded),
+                Processing = counts.FilesByStatus.GetValueOrDefault(FileStatusValue.Processing),
+                Completed = counts.FilesByStatus.GetValueOrDefault(FileStatusValue.Completed),
+                Failed = counts.FilesByStatus.GetValueOrDefault(FileStatusValue.Failed),
+            },
+            Transactions = new TransactionStatusCounts
+            {
+                Imported = counts.TransactionsByStatus.GetValueOrDefault(TransactionStatusValue.Imported),
+                Approved = counts.TransactionsByStatus.GetValueOrDefault(TransactionStatusValue.Approved),
+                Rejected = counts.TransactionsByStatus.GetValueOrDefault(TransactionStatusValue.Rejected),
+            },
+        };
+    }
+
+    /// <summary>
+    /// Both roles. Values the binder cannot read (unknown enum values, unreadable dates) are refused
+    /// with a 400 before this runs; <see cref="FileListQuery"/> checks the rest.
+    /// </summary>
+    public override async Task<ActionResult<FilePage>> ListFiles(
+        int? page = 1,
+        int? pageSize = 20,
+        FileSortColumn? sortBy = null,
+        SortDirection? sortDirection = null,
+        FileStatus? status = null,
+        string? fileName = null,
+        DateTimeOffset? processedFrom = null,
+        DateTimeOffset? processedTo = null,
+        FileVisibility? visibility = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = FileListQuery.Create(
+            page, pageSize, sortBy, sortDirection, status, fileName, processedFrom, processedTo, visibility, ModelState);
+        if (query is null)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        var files = await dashboardRepository.ListFilesAsync(query.ToCriteria(), cancellationToken);
+        return query.ToFilePage(files);
     }
 
     private static CurrentUser ToCurrentUser(string name, string email, string role) => new()
