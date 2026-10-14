@@ -20,7 +20,211 @@ tags:
     description: Uploading transaction files (importers only), listing files, a file's details, original content and invalid rows, correcting and re-checking a file (importers only), and cancelling a file (importers only).
   - name: Dashboard
     description: The figures shown above the dashboard's file list.
+  - name: Transactions
+    description: >-
+      Listing, searching and filtering transactions, a transaction's details, and the number of
+      transactions still Imported (approvers only). Transactions of cancelled files are removed
+      when the file is cancelled and never appear here.
 paths:
+  /transactions:
+    get:
+      tags: [Transactions]
+      operationId: ListTransactions
+      summary: List transactions one page at a time, sorted and filtered (TL-01..TL-03, TL-08, SF-01, SF-02, SF-04).
+      description: >-
+        Returns one page of transactions with the total number of transactions that match the
+        filters. Available to every signed-in person. Only transactions of files that are not
+        cancelled are ever listed.
+
+
+        Sorting: by default the most recent transaction date comes first. Any column can be sorted
+        on, one at a time, ascending or descending. Text columns sort ignoring upper and lower case.
+        Transactions with the same value in the sorted column are ordered by their reference
+        (ignoring case, unique across the app), in the same direction, so the order is total and
+        stays the same while paging (TL-02).
+
+
+        Filtering (SF-01): every filter is optional and all filters combine (SF-02); a transaction
+        must match every filter given. The same filters and sort are applied by the export (EX-01).
+
+
+        Empty lists: when nothing is listed, `items` is empty and `totalCount` is 0.
+        `hasAnyTransactions` tells "No transactions yet" (false, TL-08) apart from "no transactions
+        match the filters" (true, SF-04) without a second request.
+
+
+        Unknown or invalid query values are refused with 400, naming the failing parameter.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: The 1-based page number. A page past the last page is empty.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          description: The number of transactions per page; one of 5, 10, 20 or 50 (TL-03).
+          schema:
+            type: integer
+            format: int32
+            default: 20
+        - name: sortBy
+          in: query
+          required: false
+          description: The column to sort on. Defaults to `TransactionDate`.
+          schema:
+            $ref: '#/components/schemas/TransactionSortColumn'
+        - name: sortDirection
+          in: query
+          required: false
+          description: >-
+            The sort direction. Defaults to `Desc` when sorting on `TransactionDate` (the default
+            column, most recent first), and to `Asc` for every other column.
+          schema:
+            $ref: '#/components/schemas/SortDirection'
+        - name: status
+          in: query
+          required: false
+          description: Lists only the transactions with this status (DB-01, FD-02).
+          schema:
+            $ref: '#/components/schemas/TransactionStatus'
+        - name: fileId
+          in: query
+          required: false
+          description: >-
+            Lists only the transactions loaded from this file (FD-02). An id that is not a file, or
+            a cancelled file, matches nothing.
+          schema:
+            type: string
+            format: uuid
+        - name: dateFrom
+          in: query
+          required: false
+          description: >-
+            Lists only the transactions dated on or after this point (inclusive). Transaction dates
+            are local dates and times exactly as written in the file, with no time zone, so this
+            value has no time zone either. Either a date (`2026-04-15`), meaning from the start of
+            that day, or a date and time (`2026-04-15T08:30`, `2026-04-15T08:30:00` or with a
+            fraction of a second; times are compared to the microsecond, and any finer fraction is
+            ignored). A value with a time-zone offset or `Z` is refused.
+          schema:
+            type: string
+            example: '2026-04-15'
+        - name: dateTo
+          in: query
+          required: false
+          description: >-
+            Lists only the transactions dated on or before this point (inclusive), in the same
+            forms as `dateFrom`. A date (`2026-04-30`) means up to and including the whole of that
+            day; a date and time means up to and including that moment. Must not be earlier than
+            `dateFrom`.
+          schema:
+            type: string
+            example: '2026-04-30'
+        - name: minAmount
+          in: query
+          required: false
+          description: >-
+            Lists only the transactions with an amount of at least this value (inclusive). A
+            decimal number of 0 or more, e.g. `100` or `100.50`.
+          schema:
+            type: number
+            format: decimal
+            minimum: 0
+        - name: maxAmount
+          in: query
+          required: false
+          description: >-
+            Lists only the transactions with an amount of at most this value (inclusive). A decimal
+            number of 0 or more, not less than `minAmount`.
+          schema:
+            type: number
+            format: decimal
+            minimum: 0
+        - name: search
+          in: query
+          required: false
+          description: >-
+            Lists only the transactions whose reference or account number contains this text,
+            ignoring upper and lower case. Every character is matched literally (`%` and `_` are
+            not wildcards). Leading and trailing spaces are ignored; an empty value is no filter.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: One page of transactions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionPage'
+        '400':
+          description: >-
+            A query value is invalid: an unknown sort column, sort direction or status, a file id
+            that is not a UUID, a page below 1, a page size other than 5, 10, 20 or 50, a date that
+            cannot be read or has a time-zone offset, `dateFrom` later than `dateTo`, an amount that
+            is not a number or is negative, or `minAmount` greater than `maxAmount`. The failing
+            query parameters are listed under `errors`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+  /transactions/imported-count:
+    get:
+      tags: [Transactions]
+      operationId: GetImportedTransactionCount
+      summary: Get how many transactions are still Imported, for the menu badge (TL-07, approvers only).
+      description: >-
+        Counts the transactions still Imported over every file that is not cancelled. The raw
+        number is returned; showing "99+" above 99 and nothing at zero is up to the caller.
+      responses:
+        '200':
+          description: The number of Imported transactions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportedTransactionCount'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /transactions/{transactionId}:
+    get:
+      tags: [Transactions]
+      operationId: GetTransaction
+      summary: Get all of a transaction's details (TL-06).
+      description: >-
+        Returns every field of the transaction, the file it came from, who created it and when,
+        who last changed it and when, and its rejection reason (only on a Rejected transaction).
+        Available to every signed-in person.
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          description: The transaction's id.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The transaction's details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDetails'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          description: No transaction has this id ("Transaction not found"), or its file has been cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /dashboard/summary:
     get:
       tags: [Dashboard]
@@ -1038,6 +1242,177 @@ components:
           $ref: '#/components/schemas/FileDetails'
         invalidRows:
           $ref: '#/components/schemas/InvalidRowList'
+    TransactionStatus:
+      type: string
+      description: >-
+        Imported - loaded and waiting for review. Approved - approved by an approver (final).
+        Rejected - rejected by an approver with a reason (final).
+      enum: [Imported, Approved, Rejected]
+    TransactionType:
+      type: string
+      enum: [Credit, Debit]
+    TransactionSortColumn:
+      type: string
+      description: >-
+        A column of the transactions list to sort on. `Reference`, `AccountNumber`,
+        `Description`, `Currency` and `FileName` sort ignoring upper and lower case. `Amount` sorts
+        by numeric value. `TransactionType` sorts Credit before Debit. `Status` sorts in the order
+        of review: Imported, Approved, Rejected.
+      enum: [TransactionDate, Reference, AccountNumber, Description, Amount, Currency, TransactionType, Status, FileName]
+    TransactionFile:
+      type: object
+      description: The file a transaction was loaded from.
+      required: [id, fileName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+          example: transactions_2026-04-15.csv
+    TransactionListItem:
+      type: object
+      description: >-
+        A transaction as shown in the transactions list (TL-01). `transactionDate` is the local
+        date and time exactly as written in the file, with no time zone, as ISO 8601 without an
+        offset (`yyyy-MM-ddTHH:mm:ss`, followed by a fraction of a second only when it has one).
+        `amount` is a JSON number that always carries exactly two decimal places (e.g. `1500.00`),
+        the exact stored value; parse it as a decimal rather than a floating-point number to keep
+        it exact.
+      required: [id, reference, transactionDate, accountNumber, description, amount, currency, transactionType, status, file]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          example: TXN-0001
+        transactionDate:
+          type: string
+          example: '2026-04-15T08:30:00'
+        accountNumber:
+          type: string
+          example: '1234567890'
+        description:
+          type: string
+          example: Salary
+        amount:
+          type: number
+          format: decimal
+          example: 1500.00
+        currency:
+          type: string
+          example: ZAR
+        transactionType:
+          $ref: '#/components/schemas/TransactionType'
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        file:
+          $ref: '#/components/schemas/TransactionFile'
+    TransactionPage:
+      type: object
+      required: [items, page, pageSize, totalCount, totalPages, hasAnyTransactions]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionListItem'
+        page:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        totalCount:
+          type: integer
+          format: int32
+          description: The number of transactions that match the filters, over every page.
+        totalPages:
+          type: integer
+          format: int32
+          description: The number of pages; 0 when no transaction matches.
+        hasAnyTransactions:
+          type: boolean
+          description: >-
+            Whether any transaction exists at all, ignoring the filters. When nothing is listed,
+            false means "No transactions yet" (TL-08) and true means that no transaction matches
+            the filters (SF-04).
+    TransactionDetails:
+      type: object
+      description: >-
+        All of a transaction's details (TL-06), with the same values and formats as
+        `TransactionListItem`, plus who created and last changed it and when. `createdBy` and
+        `lastChangedBy` are "System" for a transaction as loaded (FP-08), or the name of the person
+        who last changed it.
+      required:
+        - id
+        - reference
+        - transactionDate
+        - accountNumber
+        - description
+        - amount
+        - currency
+        - transactionType
+        - status
+        - file
+        - createdBy
+        - createdAt
+        - lastChangedBy
+        - lastChangedAt
+        - rejectionReason
+      properties:
+        id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+          example: TXN-0001
+        transactionDate:
+          type: string
+          example: '2026-04-15T08:30:00'
+        accountNumber:
+          type: string
+          example: '1234567890'
+        description:
+          type: string
+          example: Salary
+        amount:
+          type: number
+          format: decimal
+          example: 1500.00
+        currency:
+          type: string
+          example: ZAR
+        transactionType:
+          $ref: '#/components/schemas/TransactionType'
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        file:
+          $ref: '#/components/schemas/TransactionFile'
+        createdBy:
+          type: string
+          example: System
+        createdAt:
+          type: string
+          format: date-time
+        lastChangedBy:
+          type: string
+          example: System
+        lastChangedAt:
+          type: string
+          format: date-time
+        rejectionReason:
+          type: string
+          nullable: true
+          description: The approver's reason; null unless the status is Rejected. It cannot be edited.
+    ImportedTransactionCount:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+          format: int32
+          description: How many transactions are still Imported, over every file that is not cancelled.
     ValidationProblem:
       type: object
       description: RFC 7807 validation problem details, with the failing fields under `errors`.

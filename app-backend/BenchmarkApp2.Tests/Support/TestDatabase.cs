@@ -170,6 +170,22 @@ public static class TestDatabase
         await connection.ExecuteAsync(sql, new { fileId, status, count, now });
     }
 
+    /// <summary>Stores one transaction with exactly the given values and returns its id.</summary>
+    public static async Task<Guid> InsertTransactionAsync(SeedTransaction transaction)
+    {
+        const string sql = """
+            INSERT INTO transactions (file_id, reference, transaction_date, account_number, description, amount,
+                                      transaction_type, currency, status, rejection_reason,
+                                      created_by, created_at, last_changed_by, last_changed_at)
+            VALUES (@FileId, @Reference, @TransactionDate, @AccountNumber, @Description, @Amount,
+                    @TransactionType, @Currency, @Status, @RejectionReason,
+                    @CreatedBy, @CreatedAt, @LastChangedBy, @LastChangedAt)
+            RETURNING id
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return await connection.QuerySingleAsync<Guid>(sql, transaction);
+    }
+
     /// <summary>Every loaded transaction, or only those loaded from one file.</summary>
     public static async Task<IReadOnlyList<StoredTransaction>> GetTransactionsAsync(Guid? fileId = null)
     {
@@ -227,6 +243,23 @@ public sealed record SeedFile(
     int? RowCount,
     bool IsCancelled,
     byte[]? Content = null);
+
+/// <summary>A transaction stored directly by a scenario, with every column given.</summary>
+public sealed record SeedTransaction(
+    Guid FileId,
+    string Reference,
+    DateTime TransactionDate,
+    string AccountNumber,
+    string Description,
+    decimal Amount,
+    string TransactionType,
+    string Currency,
+    string Status,
+    string? RejectionReason,
+    string CreatedBy,
+    DateTimeOffset CreatedAt,
+    string LastChangedBy,
+    DateTimeOffset LastChangedAt);
 
 public sealed class ProcessedFile
 {

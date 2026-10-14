@@ -17,7 +17,8 @@ public sealed class CommonStepDefinitions(
     ApiScenarioState state,
     ManualTimeProvider clock,
     CorrectionClient corrections,
-    CancelClient canceller)
+    CancelClient canceller,
+    TransactionSeeder transactionSeeder)
 {
     private const string SeededPassword = "Test123";
     private const string ReasonSeparator = "; ";
@@ -117,6 +118,9 @@ public sealed class CommonStepDefinitions(
 
     [Given("these files exist:")]
     public Task GivenTheseFilesExist(DataTable files) => seeder.SeedAsync(files);
+
+    [Given("these transactions exist:")]
+    public Task GivenTheseTransactionsExist(DataTable transactions) => transactionSeeder.SeedAsync(transactions);
 
     [Given("the file processor has processed the waiting files")]
     [When("the file processor processes the waiting files")]

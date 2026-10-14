@@ -26,10 +26,12 @@ public sealed class Controller(
     FileDetailsRepository fileDetailsRepository,
     FileCancellationRepository fileCancellationRepository,
     Corrector corrector,
+    TransactionRepository transactionRepository,
     TimeProvider timeProvider) : ControllerBase
 {
     private const string CsvContentType = "text/csv";
     private const string FileNotFoundMessage = "File not found";
+    private const string TransactionNotFoundMessage = "Transaction not found";
     private const string FileContentDiscardedMessage = "The original file is no longer available because the file has been cancelled.";
     private const string NotWaitingForCorrectionsMessage = "This file is not waiting for corrections.";
     private const string NotAnInvalidRowMessage = "Only the file's invalid rows can be corrected.";
@@ -264,7 +266,51 @@ public sealed class Controller(
         return await GetFileDetailsAsync(fileId, cancellationToken);
     }
 
-    private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    /// <summary>
+    /// Both roles. Values the binder cannot read (unknown enum values, a file id that is not a UUID,
+    /// an amount that is not a number) are refused with a 400 before this runs;
+    /// <see cref="TransactionListQuery"/> checks the rest.
+    /// </summary>
+    public override async Task<ActionResult<TransactionPage>> ListTransactions(
+        int? page = 1,
+        int? pageSize = 20,
+        TransactionSortColumn? sortBy = null,
+        SortDirection? sortDirection = null,
+        TransactionStatus? status = null,
+        Guid? fileId = null,
+        string? dateFrom = null,
+        string? dateTo = null,
+        decimal? minAmount = null,
+        decimal? maxAmount = null,
+        string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = TransactionListQuery.Create(
+            page, pageSize, sortBy, sortDirection, status, fileId, dateFrom, dateTo, minAmount, maxAmount, search, ModelState);
+        if (query is null)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        var transactions = await transactionRepository.ListAsync(query.Filter, query.Sort, query.Offset, query.PageSize, cancellationToken);
+        return query.ToTransactionPage(transactions);
+    }
+
+    /// <summary>Both roles (TL-06).</summary>
+    public override async Task<ActionResult<TransactionDetails>> GetTransaction(Guid transactionId, CancellationToken cancellationToken = default)
+    {
+        var transaction = await transactionRepository.GetAsync(transactionId, cancellationToken);
+        return transaction is null
+            ? NotFound(new ErrorResponse { Message = TransactionNotFoundMessage })
+            : TransactionMapper.ToDetails(transaction);
+    }
+
+    /// <summary>Approvers only, for the Transactions menu badge (TL-07).</summary>
+    [Authorize(Roles = nameof(UserRole.Approver))]
+    public override async Task<ActionResult<ImportedTransactionCount>> GetImportedTransactionCount(CancellationToken cancellationToken = default) =>
+        new ImportedTransactionCount { Count = await transactionRepository.CountImportedAsync(cancellationToken) };
+
+    private Guid CurrentUserId =>Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     /// <summary>The file's details with its processing history, or 404 when no file has the id.</summary>
     private async Task<ActionResult<FileDetails>> GetFileDetailsAsync(Guid fileId, CancellationToken cancellationToken)

@@ -19,9 +19,6 @@ public sealed record FileListQuery(
     DateTimeOffset? ProcessedTo,
     FileVisibility Visibility)
 {
-    public const int DefaultPageSize = 20;
-    public static readonly IReadOnlySet<int> PageSizes = new HashSet<int> { 5, 10, 20, 50 };
-
     /// <summary>
     /// Applies the defaults and adds an error to <paramref name="errors"/> for each invalid value.
     /// Returns null when any value is invalid.
@@ -40,8 +37,8 @@ public sealed record FileListQuery(
     {
         var sortColumn = sortBy ?? FileSortColumn.LastProcessedAt;
         var query = new FileListQuery(
-            Page: page ?? 1,
-            PageSize: pageSize ?? DefaultPageSize,
+            Page: page ?? Paging.DefaultPage,
+            PageSize: pageSize ?? Paging.DefaultPageSize,
             SortBy: sortColumn,
             SortDirection: sortDirection ?? DefaultDirection(sortColumn),
             Status: status,
@@ -50,14 +47,7 @@ public sealed record FileListQuery(
             ProcessedTo: processedTo,
             Visibility: visibility ?? FileVisibility.Active);
 
-        if (query.Page < 1)
-        {
-            errors.AddModelError("page", "The page must be 1 or more.");
-        }
-        if (!PageSizes.Contains(query.PageSize))
-        {
-            errors.AddModelError("pageSize", "The page size must be 5, 10, 20 or 50.");
-        }
+        Paging.Validate(query.Page, query.PageSize, errors);
         if (processedFrom > processedTo)
         {
             errors.AddModelError("processedTo", "The end of the process-date range must not be before its start.");
@@ -85,7 +75,7 @@ public sealed record FileListQuery(
             _ => FileListSortColumn.LastProcessedAt,
         },
         Descending: SortDirection == SortDirection.Desc,
-        Offset: (Page - 1L) * PageSize,
+        Offset: Paging.Offset(Page, PageSize),
         Limit: PageSize);
 
     public FilePage ToFilePage(FileListPage page) => new()
@@ -94,7 +84,7 @@ public sealed record FileListQuery(
         Page = Page,
         PageSize = PageSize,
         TotalCount = page.TotalCount,
-        TotalPages = (page.TotalCount + PageSize - 1) / PageSize,
+        TotalPages = Paging.TotalPages(page.TotalCount, PageSize),
     };
 
     /// <summary>The most recent processing comes first by default; every other column starts ascending.</summary>

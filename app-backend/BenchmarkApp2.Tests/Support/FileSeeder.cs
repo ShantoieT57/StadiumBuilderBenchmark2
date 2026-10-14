@@ -63,6 +63,23 @@ public sealed class FileSeeder(ManualTimeProvider clock)
         await TestDatabase.InsertTransactionsAsync(id, "Rejected", rejected, now);
     }
 
+    /// <summary>The id of the seeded file with this name, seeding it as an active Completed file first if needed.</summary>
+    public async Task<Guid> GetOrSeedFileIdAsync(string fileName)
+    {
+        if (!_fileIds.ContainsKey(fileName))
+        {
+            await SeedAsync(new SeedFile(
+                FileName: fileName,
+                Status: "Completed",
+                FailureKind: null,
+                FailureReason: null,
+                LastProcessedAt: clock.GetUtcNow(),
+                RowCount: null,
+                IsCancelled: false));
+        }
+        return _fileIds[fileName];
+    }
+
     /// <summary>Reads an ISO 8601 date and time; one without an offset is taken as UTC.</summary>
     public static DateTimeOffset? ParseDateTime(string? value) =>
         string.IsNullOrEmpty(value)
