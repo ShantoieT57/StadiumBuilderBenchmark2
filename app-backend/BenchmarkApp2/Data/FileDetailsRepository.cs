@@ -15,6 +15,7 @@ public sealed record FileDetailsRecord(
     DateTime UploadedAt,
     DateTime? LastProcessedAt,
     DateTime? CancelledAt,
+    string? CancelledBy,
     int? RowCount,
     int? LoadedCount,
     int? SkippedExistingCount,
@@ -66,13 +67,15 @@ public sealed class FileDetailsRepository(NpgsqlDataSource dataSource)
         const string sql = $"""
             SELECT f.id, f.file_name AS FileName, f.kind, f.status, f.failure_kind AS FailureKind,
                    f.failure_reason AS FailureReason, u.name AS UploadedBy, f.uploaded_at AS UploadedAt,
-                   f.last_processed_at AS LastProcessedAt, f.cancelled_at AS CancelledAt, f.row_count AS RowCount,
+                   f.last_processed_at AS LastProcessedAt, f.cancelled_at AS CancelledAt, canceller.name AS CancelledBy,
+                   f.row_count AS RowCount,
                    f.loaded_count AS LoadedCount, f.skipped_existing_count AS SkippedExistingCount,
                    f.ignored_empty_reference_count AS IgnoredEmptyReferenceCount,
                    t.imported AS ImportedCount, t.approved AS ApprovedCount, t.rejected AS RejectedCount,
                    f.content IS NOT NULL AS HasContent
             FROM files f
             JOIN users u ON u.id = f.uploaded_by
+            LEFT JOIN users canceller ON canceller.id = f.cancelled_by
             CROSS JOIN LATERAL (
                 SELECT count(*) FILTER (WHERE status = '{TransactionStatusValue.Imported}')::int AS imported,
                        count(*) FILTER (WHERE status = '{TransactionStatusValue.Approved}')::int AS approved,

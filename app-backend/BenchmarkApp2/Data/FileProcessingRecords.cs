@@ -75,6 +75,9 @@ public enum ProcessingStage
     CheckRows,
     WaitForCorrections,
     Load,
+
+    /// <summary>Not a processing stage: records when the file was cancelled, and is always the last entry.</summary>
+    Cancelled,
 }
 
 /// <summary>Why a file failed, as stored in <c>files.failure_kind</c>.</summary>

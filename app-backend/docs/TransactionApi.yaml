@@ -17,7 +17,7 @@ tags:
   - name: Authentication
     description: Signing in, identifying the signed-in person, and signing out.
   - name: Files
-    description: Uploading transaction files (importers only), listing files, a file's details, original content and invalid rows, and correcting and re-checking a file (importers only).
+    description: Uploading transaction files (importers only), listing files, a file's details, original content and invalid rows, correcting and re-checking a file (importers only), and cancelling a file (importers only).
   - name: Dashboard
     description: The figures shown above the dashboard's file list.
 paths:
@@ -465,6 +465,67 @@ paths:
           $ref: '#/components/responses/FileNotFound'
         '409':
           $ref: '#/components/responses/NotWaitingForCorrections'
+  /files/{fileId}/cancel:
+    post:
+      tags: [Files]
+      operationId: CancelFile
+      summary: Cancel a file (FX-01..FX-06, FC-04, FD-08, importers only).
+      description: >-
+        Cancels the file and returns its details as `GET /files/{fileId}` returns them. The request
+        has no body; asking the person to confirm, naming the file (FX-01), is up to the caller.
+
+
+        A file with at least one Approved transaction cannot be cancelled and is refused with 409
+        (FX-02); nothing changes. Imported and Rejected transactions do not prevent cancelling.
+
+
+        Cancelling, all in one database transaction: removes the file's transactions, so they no
+        longer appear in any list, summary or export, and a corrected file with the same references
+        can be uploaded and loaded later (FX-03); discards the app's copy of the original file, so
+        the download answers 410 (FX-04); stops a file waiting for corrections from waiting, by
+        finishing its open Wait for corrections stage and discarding the rows kept for corrections
+        (FX-04); records when the file was cancelled and by whom, and adds a `Cancelled` entry to the
+        processing history. A cancelled file no longer counts in the dashboard summary and is hidden
+        from the file list by default (FX-05, DB-06), and it no longer counts as an earlier file in
+        the duplicate check (FP-01), so the same content can be uploaded again and loaded.
+
+
+        A file can be cancelled whatever its status (Uploaded, Processing, Completed, or Failed as a
+        duplicate or because of invalid rows) and keeps that status, except that a file that has
+        been claimed for processing but whose processing has not started returns to Uploaded. A file
+        that is being processed is cancelled once its processing has finished (the request waits for
+        it), so the outcome of processing is never half undone. A cancelled file is never processed,
+        corrected or checked again. A correction or re-check under way when the file is cancelled
+        finishes first; one that starts after it is refused with 409.
+
+
+        Cancelling a file that is already cancelled, by anyone, changes nothing and returns its
+        details showing it cancelled, with the original cancel time and person (FX-06).
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: The file is cancelled (now, or already before); its details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileDetails'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/FileNotFound'
+        '409':
+          description: >-
+            The file has at least one Approved transaction, so it cannot be cancelled (FX-02). The
+            `message` explains why and says how many transactions have been approved, e.g. "This
+            file cannot be cancelled because 3 of its transactions have been approved." Nothing is
+            changed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   parameters:
     FileId:
@@ -730,8 +791,11 @@ components:
           format: date-time
     ProcessingStage:
       type: string
-      description: A stage of processing a file, in the order they run.
-      enum: [Receive, DuplicateCheck, ReadRows, ConvertTypes, CheckRows, WaitForCorrections, Load]
+      description: >-
+        A stage of processing a file, in the order they run. `Cancelled` is not a processing stage
+        but an entry recording when the file was cancelled; it starts and finishes at that moment
+        and is always the last entry.
+      enum: [Receive, DuplicateCheck, ReadRows, ConvertTypes, CheckRows, WaitForCorrections, Load, Cancelled]
     ProcessingStageEntry:
       type: object
       required: [stage, startedAt, finishedAt]
@@ -762,6 +826,7 @@ components:
         - lastProcessedAt
         - isCancelled
         - cancelledAt
+        - cancelledBy
         - rowCount
         - loadedCount
         - skippedExistingCount
@@ -810,6 +875,13 @@ components:
           format: date-time
           nullable: true
           description: When the file was cancelled; null unless it is cancelled.
+        cancelledBy:
+          type: string
+          nullable: true
+          description: >-
+            The name of the person who cancelled the file; null unless it is cancelled (and for a
+            file cancelled before this was recorded).
+          example: File Importer
         rowCount:
           type: integer
           format: int32

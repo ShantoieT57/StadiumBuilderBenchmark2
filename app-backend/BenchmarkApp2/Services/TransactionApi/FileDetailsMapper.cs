@@ -29,6 +29,7 @@ public static class FileDetailsMapper
             LastProcessedAt = AsUtc(file.LastProcessedAt),
             IsCancelled = isCancelled,
             CancelledAt = AsUtc(file.CancelledAt),
+            CancelledBy = file.CancelledBy,
             RowCount = file.RowCount,
             LoadedCount = file.LoadedCount,
             SkippedExistingCount = file.SkippedExistingCount,

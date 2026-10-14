@@ -36,11 +36,31 @@ public static class TestDatabase
         await new Migrator(dataSource, NullLogger<Migrator>.Instance).MigrateAsync(CancellationToken.None);
     }
 
-    /// <summary>Removes data written by scenarios, leaving the seeded users in place.</summary>
+    private const string SeededImporterEmail = "fileimporter@digiata.com";
+    private const string SeededApproverEmail = "approver@digiata.com";
+
+    /// <summary>Removes data written by scenarios, including users they added, leaving the seeded users in place.</summary>
     public static async Task ResetAsync()
     {
+        const string sql = $"""
+            DELETE FROM transactions;
+            DELETE FROM files;
+            DELETE FROM sessions;
+            DELETE FROM users WHERE email NOT IN ('{SeededImporterEmail}', '{SeededApproverEmail}');
+            """;
         await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.ExecuteAsync("DELETE FROM transactions; DELETE FROM files; DELETE FROM sessions");
+        await connection.ExecuteAsync(sql);
+    }
+
+    /// <summary>Adds another importer, who signs in with the same password as the seeded importer.</summary>
+    public static async Task InsertImporterAsync(string name, string email)
+    {
+        const string sql = $"""
+            INSERT INTO users (name, email, role, password_hash)
+            SELECT @name, @email, 'Importer', password_hash FROM users WHERE email = '{SeededImporterEmail}'
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        Assert.Equal(1, await connection.ExecuteAsync(sql, new { name, email }));
     }
 
     /// <summary>
@@ -97,17 +117,6 @@ public static class TestDatabase
     {
         await using var connection = new NpgsqlConnection(ConnectionString);
         Assert.Equal(1, await connection.ExecuteAsync("UPDATE files SET status = @status WHERE id = @fileId", new { fileId, status }));
-    }
-
-    /// <summary>
-    /// Marks a file cancelled and removes its transactions (FX-03), standing in for the cancel action
-    /// until it exists.
-    /// </summary>
-    public static async Task CancelFileAsync(Guid fileId, DateTimeOffset now)
-    {
-        await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.ExecuteAsync("DELETE FROM transactions WHERE file_id = @fileId", new { fileId });
-        Assert.Equal(1, await connection.ExecuteAsync("UPDATE files SET cancelled_at = @now WHERE id = @fileId", new { fileId, now }));
     }
 
     /// <summary>Removes a file's original content, as cancelling a file does (FX-04).</summary>

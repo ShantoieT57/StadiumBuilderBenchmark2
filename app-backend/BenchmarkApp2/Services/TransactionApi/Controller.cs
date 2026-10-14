@@ -24,7 +24,9 @@ public sealed class Controller(
     FileReceiver fileReceiver,
     DashboardRepository dashboardRepository,
     FileDetailsRepository fileDetailsRepository,
-    Corrector corrector) : ControllerBase
+    FileCancellationRepository fileCancellationRepository,
+    Corrector corrector,
+    TimeProvider timeProvider) : ControllerBase
 {
     private const string CsvContentType = "text/csv";
     private const string FileNotFoundMessage = "File not found";
@@ -35,6 +37,11 @@ public sealed class Controller(
     private const string InvalidCredentialsMessage = "Invalid email or password";
     private const string InvalidFileNameMessage = "Invalid file name";
     private const string NotCsvFileMessage = "Only .csv files can be uploaded. Please choose a .csv file.";
+
+    /// <summary>Why a file with Approved transactions cannot be cancelled (FX-02), with how many there are.</summary>
+    private static string HasApprovedTransactionsMessage(int approvedCount) => approvedCount == 1
+        ? "This file cannot be cancelled because 1 of its transactions has been approved."
+        : $"This file cannot be cancelled because {approvedCount} of its transactions have been approved.";
 
     [AllowAnonymous]
     public override async Task<ActionResult<CurrentUser>> SignIn(SignInRequest body, CancellationToken cancellationToken = default)
@@ -95,7 +102,7 @@ public sealed class Controller(
             fileName,
             kind ?? FileKind.BankTransactions,
             file.Data,
-            Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!),
+            CurrentUserId,
             cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, new UploadedFile
@@ -158,17 +165,8 @@ public sealed class Controller(
     }
 
     /// <summary>Both roles, for active and cancelled files. The processing history is part of the details.</summary>
-    public override async Task<ActionResult<FileDetails>> GetFile(Guid fileId, CancellationToken cancellationToken = default)
-    {
-        var file = await fileDetailsRepository.GetDetailsAsync(fileId, cancellationToken);
-        if (file is null)
-        {
-            return FileNotFound();
-        }
-
-        var history = await fileDetailsRepository.GetProcessingHistoryAsync(fileId, cancellationToken);
-        return FileDetailsMapper.ToFileDetails(file, history);
-    }
+    public override Task<ActionResult<FileDetails>> GetFile(Guid fileId, CancellationToken cancellationToken = default) =>
+        GetFileDetailsAsync(fileId, cancellationToken);
 
     /// <summary>
     /// Both roles. Returns the exact uploaded bytes as text/csv with no charset, since the file's
@@ -235,17 +233,57 @@ public sealed class Controller(
             return refusal;
         }
 
-        var file = await fileDetailsRepository.GetDetailsAsync(fileId, cancellationToken);
-        var history = await fileDetailsRepository.GetProcessingHistoryAsync(fileId, cancellationToken);
+        var file = await LoadFileDetailsAsync(fileId, cancellationToken);
         var stillInvalid = outcome == CorrectionOutcome.StillInvalid
             ? await fileDetailsRepository.GetInvalidRowsAsync(fileId, cancellationToken)
             : [];
         return new RecheckResult
         {
             Status = outcome == CorrectionOutcome.Completed ? FileStatus.Completed : FileStatus.Failed,
-            File = FileDetailsMapper.ToFileDetails(file!, history),
+            File = file!,
             InvalidRows = FileDetailsMapper.ToInvalidRowList(stillInvalid),
         };
+    }
+
+    /// <summary>
+    /// Importers only (FD-08). Cancels the file, or leaves an already cancelled file as it is (FX-06),
+    /// and returns its details. A file with Approved transactions is refused with 409 (FX-02).
+    /// </summary>
+    [Authorize(Roles = nameof(UserRole.Importer))]
+    public override async Task<ActionResult<FileDetails>> CancelFile(Guid fileId, CancellationToken cancellationToken = default)
+    {
+        var result = await fileCancellationRepository.CancelAsync(fileId, CurrentUserId, timeProvider.GetUtcNow(), cancellationToken);
+        switch (result.Outcome)
+        {
+            case CancellationOutcome.FileNotFound:
+                return FileNotFound();
+            case CancellationOutcome.HasApprovedTransactions:
+                return Conflict(new ErrorResponse { Message = HasApprovedTransactionsMessage(result.ApprovedCount) });
+        }
+
+        return await GetFileDetailsAsync(fileId, cancellationToken);
+    }
+
+    private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    /// <summary>The file's details with its processing history, or 404 when no file has the id.</summary>
+    private async Task<ActionResult<FileDetails>> GetFileDetailsAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        var details = await LoadFileDetailsAsync(fileId, cancellationToken);
+        return details is null ? FileNotFound() : details;
+    }
+
+    /// <summary>The file's details with its processing history, or null when no file has the id.</summary>
+    private async Task<FileDetails?> LoadFileDetailsAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        var file = await fileDetailsRepository.GetDetailsAsync(fileId, cancellationToken);
+        if (file is null)
+        {
+            return null;
+        }
+
+        var history = await fileDetailsRepository.GetProcessingHistoryAsync(fileId, cancellationToken);
+        return FileDetailsMapper.ToFileDetails(file, history);
     }
 
     private NotFoundObjectResult FileNotFound() => NotFound(new ErrorResponse { Message = FileNotFoundMessage });

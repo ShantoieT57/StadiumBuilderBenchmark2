@@ -16,7 +16,8 @@ public sealed class CommonStepDefinitions(
     FileSeeder seeder,
     ApiScenarioState state,
     ManualTimeProvider clock,
-    CorrectionClient corrections)
+    CorrectionClient corrections,
+    CancelClient canceller)
 {
     private const string SeededPassword = "Test123";
     private const string ReasonSeparator = "; ";
@@ -124,6 +125,12 @@ public sealed class CommonStepDefinitions(
     [Given("uploaded file {int} has been left with the status {string}")]
     public Task GivenUploadedFileHasBeenLeftWithTheStatus(int position, string status) =>
         TestDatabase.SetFileStatusAsync(state.GetUploadedFileId(position), status);
+
+    [Given("I have cancelled the last uploaded file")]
+    public Task GivenIHaveCancelledTheLastUploadedFile() => canceller.CancelSuccessfullyAsync(state.LastUploadedFileId);
+
+    [Given("uploaded file {int} has been cancelled")]
+    public Task GivenUploadedFileHasBeenCancelled(int position) => canceller.CancelSuccessfullyAsync(state.GetUploadedFileId(position));
 
     [Then("the last uploaded file has the status {string}")]
     public async Task ThenTheLastUploadedFileHasTheStatus(string status)

@@ -55,6 +55,7 @@ public static class WebHostFactory
         services.AddSingleton<FileReceiver>();
         services.AddSingleton<DashboardRepository>();
         services.AddSingleton<FileDetailsRepository>();
+        services.AddSingleton<FileCancellationRepository>();
         services.AddSingleton<FileProcessingRepository>();
         services.AddSingleton<FileProcessor.Corrector>();
 
