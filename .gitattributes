@@ -1,0 +1,6 @@
+# This folder is a template payload: the Bootstrapper copies these files verbatim out of
+# the working tree into every scaffolded application, and they are then built and run
+# inside Linux containers. They must keep LF endings regardless of the repository-wide
+# `* text=auto eol=crlf` policy in the root .gitattributes — a stray CR breaks `#!`
+# shebangs, the husky pre-commit hook, and the shell scripts the CI workflows run.
+* text=auto eol=lf

@@ -1,0 +1,15 @@
+### YamlMime:TableOfContent
+- name: Twenty57.Builder.ApplicationRuntime.Interfaces
+  href: Twenty57.Builder.ApplicationRuntime.Interfaces.md
+  items:
+  - name: Interfaces
+  - name: IAppSettings
+    href: Twenty57.Builder.ApplicationRuntime.Interfaces.IAppSettings.md
+  - name: IService
+    href: Twenty57.Builder.ApplicationRuntime.Interfaces.IService.md
+- name: Twenty57.Builder.ApplicationRuntime.Sdk
+  href: Twenty57.Builder.ApplicationRuntime.Sdk.md
+  items:
+  - name: Classes
+  - name: Runner
+    href: Twenty57.Builder.ApplicationRuntime.Sdk.Runner.md

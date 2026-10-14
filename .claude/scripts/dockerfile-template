@@ -1,0 +1,8 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+COPY src src
+RUN dotnet publish --source https://api.nuget.org/v3/index.json --source https://nuget.twenty57.com/t57-builder/api/v3/index.json --verbosity minimal --output publish src/{{projectName}}
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+ENV ASPNETCORE_URLS=http://+:80
+COPY --from=build publish ./
+ENTRYPOINT ["dotnet", "{{projectName}}.dll"]

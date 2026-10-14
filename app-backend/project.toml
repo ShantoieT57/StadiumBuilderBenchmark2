@@ -1,0 +1,9 @@
+[_]
+schema-version = "0.2"
+
+[io.buildpacks]
+exclude = ["BenchmarkApp2.Tests"]
+
+[[io.buildpacks.build.env]]
+name = "BP_DOTNET_PROJECT_PATH"
+value = "BenchmarkApp2"

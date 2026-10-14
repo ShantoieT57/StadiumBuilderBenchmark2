@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>BenchmarkApp2</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
+    <PackageReference Include="NSwag.MSBuild" Version="14.7.1">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Twenty57.Builder.ApplicationRuntime.Sdk" Version="0.0.1-pre.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <NSwagSpec Include="$(MSBuildThisFileDirectory)NSwag\*.nswag" />
+    <OpenApiSpecGenerated Include="$(MSBuildThisFileDirectory)Services\**\*.g.cs" />
+  </ItemGroup>
+
+  <Target Name="OpenApiSpecGenerate" BeforeTargets="BeforeBuild" Condition="'@(NSwagSpec)' != ''">
+    <ItemGroup>
+      <Compile Remove="@(OpenApiSpecGenerated)" />
+    </ItemGroup>
+    <MakeDir Directories="$(MSBuildThisFileDirectory)Services" />
+    <Exec Command="$(NSwagExe_Net100) run" WorkingDirectory="$(MSBuildThisFileDirectory)NSwag" />
+    <ItemGroup>
+      <Compile Include="$(MSBuildThisFileDirectory)Services\**\*.g.cs" Exclude="@(Compile)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="OpenApiSpecClean" AfterTargets="Clean">
+    <Delete Files="@(OpenApiSpecGenerated)" />
+  </Target>
+</Project>
