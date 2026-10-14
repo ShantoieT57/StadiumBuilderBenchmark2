@@ -42,4 +42,26 @@ public static class TestDatabase
         await using var connection = new NpgsqlConnection(ConnectionString);
         await connection.ExecuteAsync("DELETE FROM sessions");
     }
+
+    /// <summary>
+    /// Adds an active session for a user directly, bypassing sign-in (which would end the user's other
+    /// sessions), to represent a session that is open on another device.
+    /// </summary>
+    public static async Task InsertActiveSessionAsync(string email, byte[] tokenHash, DateTimeOffset now)
+    {
+        const string sql = """
+            INSERT INTO sessions (user_id, token_hash, created_at, last_activity_at)
+            SELECT id, @tokenHash, @now, @now FROM users WHERE lower(email) = lower(@email)
+            """;
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        Assert.Equal(1, await connection.ExecuteAsync(sql, new { email, tokenHash, now }));
+    }
+
+    /// <summary>The recorded end reason of a session, or null while the session is still active.</summary>
+    public static async Task<string?> GetSessionEndReasonAsync(byte[] tokenHash)
+    {
+        const string sql = "SELECT end_reason FROM sessions WHERE token_hash = @tokenHash";
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        return await connection.QuerySingleAsync<string?>(sql, new { tokenHash });
+    }
 }

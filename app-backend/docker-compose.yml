@@ -1,0 +1,21 @@
+# Local PostgreSQL for BenchmarkApp2, matching the container the app and tests are configured for
+# (127.0.0.1:5433, user/password postgres, database benchmark_app_2; the tests create
+# benchmark_app_2_tests themselves). Start with: docker compose -f app-backend/docker-compose.yml up -d
+name: benchmark-app-2
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: benchmark-app-2-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: benchmark_app_2
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:

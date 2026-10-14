@@ -15,6 +15,17 @@ public sealed class ApiScenarioState
     /// <summary>The session cookie value sent with authenticated requests, if any.</summary>
     public string? SessionCookie { get; set; }
 
+    /// <summary>
+    /// Session cookies held by separately named browsers (or devices), for scenarios in which the
+    /// same or different people are signed in in more than one place.
+    /// </summary>
+    public Dictionary<string, string> BrowserSessionCookies { get; } = [];
+
+    public string GetBrowserSessionCookie(string browser) =>
+        BrowserSessionCookies.TryGetValue(browser, out var cookie)
+            ? cookie
+            : throw new InvalidOperationException($"Browser \"{browser}\" has no session cookie in this scenario.");
+
     public async Task RecordResponseAsync(HttpResponseMessage response)
     {
         _lastResponse = response;

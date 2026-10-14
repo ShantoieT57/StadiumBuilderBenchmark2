@@ -7,20 +7,23 @@ namespace BenchmarkApp2.Services.TransactionApi;
 
 /// <summary>
 /// Authenticates a request from the session cookie against the active sessions in the database,
-/// and answers unauthenticated requests with a JSON 401 instead of a redirect.
+/// and answers unauthenticated requests with a JSON 401 instead of a redirect. The 401 says why the
+/// request was not authenticated, so the front-end can tell an ended session from never signing in.
 /// </summary>
 public sealed class SessionAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
     UrlEncoder encoder,
-    SessionManager sessionManager)
+    SessionManager sessionManager,
+    AppSettings settings)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "Session";
 
     public const string SessionIdClaimType = "session_id";
 
-    private const string NotSignedInMessage = "You are not signed in.";
+    /// <summary>The authentication property that carries the <see cref="UnauthenticatedReason"/> to the challenge.</summary>
+    private const string FailureReasonProperty = "failure_reason";
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -29,10 +32,12 @@ public sealed class SessionAuthenticationHandler(
             return AuthenticateResult.NoResult();
         }
 
-        var session = await sessionManager.FindActiveSessionAsync(token, Context.RequestAborted);
-        if (session is null)
+        var authentication = await sessionManager.AuthenticateAsync(token, Context.RequestAborted);
+        if (authentication.User is not { } session)
         {
-            return AuthenticateResult.Fail("The session is unknown or has ended.");
+            var properties = new AuthenticationProperties();
+            properties.Items[FailureReasonProperty] = authentication.FailureReason.ToString();
+            return AuthenticateResult.Fail("The session is unknown or has ended.", properties);
         }
 
         var identity = new ClaimsIdentity(
@@ -49,7 +54,21 @@ public sealed class SessionAuthenticationHandler(
 
     protected override async Task HandleChallengeAsync(AuthenticationProperties properties)
     {
+        var result = await HandleAuthenticateOnceSafeAsync();
+        var reason = result.Properties?.Items.TryGetValue(FailureReasonProperty, out var value) == true
+            ? Enum.Parse<UnauthenticatedReason>(value!)
+            : UnauthenticatedReason.NotSignedIn;
+
         Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await Response.WriteAsJsonAsync(new ErrorResponse { Message = NotSignedInMessage });
+        await Response.WriteAsJsonAsync(new UnauthenticatedResponse { Reason = reason, Message = GetMessage(reason) });
     }
+
+    private string GetMessage(UnauthenticatedReason reason) => reason switch
+    {
+        UnauthenticatedReason.SessionExpired =>
+            $"Your session has expired after {settings.SessionInactivityTimeoutMinutes} minutes of inactivity. Please sign in again.",
+        UnauthenticatedReason.SignedInElsewhere => "You have been signed out because you signed in somewhere else.",
+        UnauthenticatedReason.SignedOut => "You have been signed out. Please sign in again.",
+        _ => "You are not signed in.",
+    };
 }

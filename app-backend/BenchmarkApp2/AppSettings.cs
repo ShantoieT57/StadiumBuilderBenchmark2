@@ -10,6 +10,12 @@ public sealed class AppSettings : IAppSettings
     /// </summary>
     public string TransactionApiUri { get; set; } = "http://localhost:5100/api";
 
+    /// <summary>
+    /// How many minutes a session may go without any authenticated request before it expires and
+    /// the person must sign in again. Every authenticated request restarts the period.
+    /// </summary>
+    public int SessionInactivityTimeoutMinutes { get; set; } = 60;
+
     /// <summary>The PostgreSQL connection string for the application database.</summary>
     public string DatabaseConnectionString { get; set; } =
         "Host=localhost;Port=5433;Database=benchmark_app_2;Username=postgres;Password=postgres";

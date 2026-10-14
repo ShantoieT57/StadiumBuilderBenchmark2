@@ -17,8 +17,11 @@ Feature: Current user
   Scenario: Without a session the current user is not available
     When I request the current user
     Then the response status code is 401
+    And the response reason is "NotSignedIn"
+    And the response message is "You are not signed in."
 
   Scenario: A session cookie that was never issued is not accepted
     Given I have a session cookie that was never issued
     When I request the current user
     Then the response status code is 401
+    And the response reason is "NotSignedIn"

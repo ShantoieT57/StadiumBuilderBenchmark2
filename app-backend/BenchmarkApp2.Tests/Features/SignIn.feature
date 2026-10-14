@@ -48,3 +48,32 @@ Feature: Sign in
     And the validation errors include the field "email"
     And the validation errors include the field "password"
     And no session cookie is issued
+
+  Scenario: Signing in in a second browser signs the person out of the first
+    Given I am signed in as "fileimporter@digiata.com" in browser "A"
+    When I sign in as "fileimporter@digiata.com" in browser "B"
+    And I request the current user from browser "A"
+    Then the response status code is 401
+    And the response reason is "SignedInElsewhere"
+    And the response message is "You have been signed out because you signed in somewhere else."
+    And the session in browser "A" has ended with the reason "SignedInElsewhere"
+    When I request the current user from browser "B"
+    Then the response status code is 200
+
+  Scenario: Signing in does not affect another person's session
+    Given I am signed in as "fileimporter@digiata.com" in browser "A"
+    When I sign in as "approver@digiata.com" in browser "B"
+    And I request the current user from browser "A"
+    Then the response status code is 200
+
+  Scenario: A failed sign-in does not sign the person out elsewhere
+    Given I am signed in as "fileimporter@digiata.com" in browser "A"
+    When I sign in with email "fileimporter@digiata.com" and password "Wrong123"
+    And I request the current user from browser "A"
+    Then the response status code is 200
+
+  Scenario: A session that had already timed out is recorded as expired when the person signs in again
+    Given I am signed in as "fileimporter@digiata.com" in browser "A"
+    When 60 minutes pass
+    And I sign in as "fileimporter@digiata.com" in browser "B"
+    Then the session in browser "A" has ended with the reason "Expired"

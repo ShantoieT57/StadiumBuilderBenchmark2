@@ -5,7 +5,11 @@ info:
   description: >-
     REST API for the Transaction Import and Approval app. Every endpoint requires
     a signed-in session (sent as the HttpOnly `txn_session` cookie) unless it is
-    explicitly marked as anonymous.
+    explicitly marked as anonymous. A person can be signed in in one place at a
+    time, and a session ends after a period of inactivity (60 minutes by default);
+    any authenticated request resets that period. When a request is refused with
+    401, the `reason` in the response says why, so the caller can tell an expired
+    session or a sign-in elsewhere from never having signed in.
 servers:
   - url: http://localhost:5100/api
 tags:
@@ -19,8 +23,11 @@ paths:
       summary: Sign in with email address and password (anonymous).
       description: >-
         Starts a server-side session and returns it as the HttpOnly `txn_session`
-        cookie. A wrong email address and a wrong password both return the same
-        401 response, so the caller can never tell which of the two was wrong.
+        cookie. A person can be signed in in one place at a time, so any other
+        active session of the same person is ended; its cookie is then refused
+        with the reason `SignedInElsewhere`. A wrong email address and a wrong
+        password both return the same 401 response, so the caller can never tell
+        which of the two was wrong.
       security: []
       requestBody:
         required: true
@@ -57,6 +64,9 @@ paths:
       tags: [Authentication]
       operationId: GetCurrentUser
       summary: Get the person who is signed in with the current session.
+      description: >-
+        Like every authenticated request, this counts as activity and resets the
+        session's inactivity timeout.
       responses:
         '200':
           description: The signed-in person.
@@ -65,25 +75,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/CurrentUser'
         '401':
-          description: There is no valid session.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/Unauthenticated'
   /auth/sign-out:
     post:
       tags: [Authentication]
       operationId: SignOut
-      summary: Sign out, ending the current session (anonymous, idempotent).
+      summary: Sign out on every device (anonymous, idempotent).
       description: >-
-        Ends the session identified by the `txn_session` cookie, if any, and
-        clears the cookie. Afterwards the cookie no longer authenticates.
-        Always succeeds, even when there is no valid session.
+        When the `txn_session` cookie identifies an active session, ends every
+        active session of that person, so they are signed out on every device;
+        the other devices' cookies are then refused with the reason `SignedOut`.
+        Always clears the cookie and always succeeds, even when there is no valid
+        session (in which case no other session is affected).
       security: []
       responses:
         '204':
           description: Signed out. The session cookie is cleared.
 components:
+  responses:
+    Unauthenticated:
+      description: >-
+        There is no valid session. The `reason` says why, so the caller can show
+        a suitable message on the sign-in screen.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UnauthenticatedResponse'
   securitySchemes:
     sessionCookie:
       type: apiKey
@@ -125,6 +142,24 @@ components:
         message:
           type: string
           example: Invalid email or password
+    UnauthenticatedReason:
+      type: string
+      description: >-
+        Why a request was not authenticated. NotSignedIn - no session cookie, or
+        one that was never issued. SessionExpired - the session ended after the
+        inactivity timeout. SignedInElsewhere - the person signed in somewhere
+        else, which ended this session. SignedOut - the session was ended by
+        signing out (possibly on another device).
+      enum: [NotSignedIn, SessionExpired, SignedInElsewhere, SignedOut]
+    UnauthenticatedResponse:
+      type: object
+      required: [message, reason]
+      properties:
+        message:
+          type: string
+          example: Your session has expired after 60 minutes of inactivity. Please sign in again.
+        reason:
+          $ref: '#/components/schemas/UnauthenticatedReason'
     ValidationProblem:
       type: object
       description: RFC 7807 validation problem details, with the failing fields under `errors`.

@@ -30,7 +30,7 @@ public static class WebHostFactory
             ApplicationName = typeof(WebHostFactory).Assembly.GetName().Name,
         });
         builder.WebHost.UseUrls(hostUrl);
-        RegisterServices(builder.Services, dataSource);
+        RegisterServices(builder.Services, settings, dataSource);
         configure?.Invoke(builder);
 
         var app = builder.Build();
@@ -38,8 +38,14 @@ public static class WebHostFactory
         return app;
     }
 
-    private static void RegisterServices(IServiceCollection services, NpgsqlDataSource dataSource)
+    /// <remarks>
+    /// The system clock is registered as the <see cref="TimeProvider"/>; tests replace it from
+    /// <c>configure</c> to control time.
+    /// </remarks>
+    private static void RegisterServices(IServiceCollection services, AppSettings settings, NpgsqlDataSource dataSource)
     {
+        services.AddSingleton(settings);
+        services.AddSingleton(TimeProvider.System);
         services.AddSingleton(dataSource);
         services.AddSingleton<UserRepository>();
         services.AddSingleton<SessionRepository>();
