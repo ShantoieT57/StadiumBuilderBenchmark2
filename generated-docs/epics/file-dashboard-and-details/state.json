@@ -15,17 +15,17 @@
   "phase": "BUILD",
   "stories": {
     "1": {
-      "status": "pending",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
-      "completedAt": null
+      "startedAt": "2026-10-15T11:28:37.694Z",
+      "completedAt": "2026-10-15T11:35:55.005Z"
     },
     "2": {
-      "status": "pending",
+      "status": "in-progress",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
+      "startedAt": "2026-10-15T11:35:55.005Z",
       "completedAt": null
     },
     "3": {
@@ -51,5 +51,5 @@
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T11:17:02.170Z"
+  "lastUpdated": "2026-10-15T11:35:55.005Z"
 }
