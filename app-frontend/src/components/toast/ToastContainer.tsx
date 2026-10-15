@@ -3,7 +3,8 @@
 /**
  * ToastContainer - Container component for rendering toast notifications
  * Positioned at top-right of viewport, renders all active toasts
- * Manages stacking and positioning of multiple toasts
+ * Manages stacking and positioning of multiple toasts. Each toast is its own
+ * live region (status / alert), so the container itself is not one.
  */
 
 import { useToast } from '@/contexts/ToastContext';
@@ -46,8 +47,6 @@ export function ToastContainer({
   return (
     <div
       className={`fixed ${getPositionClasses()} z-50 flex flex-col gap-2 max-w-sm w-full px-4 sm:px-0 pointer-events-none`}
-      aria-live="polite"
-      aria-atomic="false"
       role="region"
       aria-label="Notifications"
     >

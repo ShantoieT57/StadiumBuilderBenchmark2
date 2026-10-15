@@ -25,16 +25,6 @@ export const PAGINATION = {
 } as const;
 
 /**
- * Toast notification settings
- */
-export const TOAST_SETTINGS = {
-  DEFAULT_DURATION: 5000, // 5 seconds
-  SUCCESS_DURATION: 3000, // 3 seconds
-  ERROR_DURATION: 7000, // 7 seconds
-  MAX_TOASTS: 3,
-} as const;
-
-/**
  * Modal settings
  */
 export const MODAL_SETTINGS = {

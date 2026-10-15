@@ -18,6 +18,7 @@
 | `AppNav` | `app-frontend/src/components/shell/AppNav.tsx` | Role-filtered main menu from the access map: inline `<nav>` at md+, icon menu button + Sheet below md; optional per-route `badges` slot |
 | `RouteGuard` | `app-frontend/src/components/shell/RouteGuard.tsx` | Server-side per-screen role check (`route: AppRoute`); renders `NoAccess` in the shell for a disallowed role |
 | `NoAccess` | `app-frontend/src/components/shell/NoAccess.tsx` | In-shell no-access message naming the administrator |
+| `ToastProvider` / `useToast` / `ToastContainer` / `Toast` | `app-frontend/src/contexts/ToastContext.tsx`, `app-frontend/src/components/toast/`, `app-frontend/src/types/toast.ts` | The single shared message mechanism (mounted in the root layout): `showToast({ variant, title, message? })` returns an id; `success`/`info`/`warning` auto-dismiss (default 5 s), `error` = "Problem" never auto-dismisses (close by the person or `dismissToast(id)` when resolved); visible kind word, `status`/`alert` live regions, tooltip-labelled dismiss button; one timer per message in the provider |
 | Tooltip / Sheet primitives | `app-frontend/src/components/ui/tooltip.tsx`, `sheet.tsx` | shadcn (radix-ui) |
 | `(signed-in)` layout | `app-frontend/src/app/(signed-in)/layout.tsx` | Server-gated shell: header + role menu + `<main>`; redirects to sign-in before rendering |
 
@@ -26,6 +27,7 @@
 - Signed-in screens live under `app/(signed-in)/` and render no `<main>` of their own (the layout owns it); standalone screens (sign-in, privacy) render their own `<main>`.
 - Every signed-in page wraps its content in `<RouteGuard route=...>` (the layout does not re-run on client navigation, so the role check lives in the page).
 - Icon-only buttons: `aria-label` + shadcn Tooltip with its own `TooltipProvider disableHoverableContent`, shown on hover and focus.
+- Success / problem feedback that is not tied to one form field goes through `useToast()`; status colours use the `success` / `warning` / `destructive` tokens, never palette utilities.
 - Forms: required fields carry `required` + a visible `*`; validation on blur and on submit (react-hook-form `mode: 'onBlur'`, `reValidateMode: 'onBlur'`); field errors linked by `aria-describedby`.
 
 ## Cross-epic debt

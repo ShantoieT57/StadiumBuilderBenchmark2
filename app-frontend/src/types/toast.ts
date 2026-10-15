@@ -1,52 +1,56 @@
 /**
- * Toast notification type definitions
- * Defines interfaces for the toast notification system
+ * Shared message (toast) type definitions — the app's single success / problem
+ * message mechanism (BR10).
  */
 
 /**
- * ToastVariant - Available toast notification variants
+ * ToastVariant - Available message kinds.
+ * `error` is a "Problem": it never auto-dismisses and is announced assertively.
  */
 export type ToastVariant = 'success' | 'error' | 'info' | 'warning';
 
 /**
- * Toast - Individual toast notification object
+ * Toast - Individual message object
  */
 export interface Toast {
   id: string;
   variant: ToastVariant;
   title: string;
   message?: string;
-  duration?: number; // Duration in milliseconds (default: 5000)
-  dismissible?: boolean; // Whether user can manually dismiss (default: true)
-  onClick?: () => void; // Optional click handler for interactive toasts
+  /** Auto-dismiss delay in ms; 0 = stays until dismissed. Always 0 for problems. */
+  duration: number;
+  /** Whether the person can dismiss it. Always true for problems. */
+  dismissible: boolean;
+  onClick?: () => void; // Optional click handler for interactive messages
 }
 
 /**
- * ToastOptions - Options for creating a new toast
- * Used when calling showToast function
+ * ToastOptions - Options for raising a new message via showToast
  */
 export interface ToastOptions {
   variant: ToastVariant;
   title: string;
   message?: string;
+  /** Ignored for problems (`error`), which never auto-dismiss. */
   duration?: number;
+  /** Ignored for problems (`error`), which can always be dismissed. */
   dismissible?: boolean;
   onClick?: () => void;
 }
 
 /**
- * ToastContextValue - Context value for toast provider
- * Provides toast state and functions to child components
+ * ToastContextValue - Context value for the provider
  */
 export interface ToastContextValue {
   toasts: Toast[];
-  showToast: (options: ToastOptions) => void;
+  /** Raises a message and returns its id (pass it to dismissToast once the problem is resolved). */
+  showToast: (options: ToastOptions) => string;
   dismissToast: (id: string) => void;
   clearAllToasts: () => void;
 }
 
 /**
- * ToastProps - Props for individual Toast component
+ * ToastProps - Props for an individual Toast component
  */
 export interface ToastProps {
   toast: Toast;
@@ -55,7 +59,6 @@ export interface ToastProps {
 
 /**
  * ToastContainerProps - Props for ToastContainer component
- * Optional position configuration for future enhancement
  */
 export interface ToastContainerProps {
   position?:
@@ -65,46 +68,29 @@ export interface ToastContainerProps {
     | 'bottom-left'
     | 'top-center'
     | 'bottom-center';
-  maxToasts?: number; // Maximum number of toasts to display at once (default: 3)
+  maxToasts?: number; // Maximum number of messages to display at once (default: 3)
 }
 
 /**
- * Default toast configuration values
+ * Default message configuration values
  */
 export const TOAST_DEFAULTS = {
+  /** Auto-dismiss delay for success / info / warning messages. */
   DURATION: 5000, // 5 seconds
   MAX_TOASTS: 3,
   POSITION: 'top-right' as const,
   DISMISSIBLE: true,
 } as const;
 
-/**
- * Toast variant configuration
- * Maps variants to their visual properties
- */
-export const TOAST_VARIANT_CONFIG = {
-  success: {
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
-    textColor: 'text-green-900',
-    iconColor: 'text-green-600',
-  },
-  error: {
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
-    textColor: 'text-red-900',
-    iconColor: 'text-red-600',
-  },
-  info: {
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    textColor: 'text-blue-900',
-    iconColor: 'text-blue-600',
-  },
-  warning: {
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
-    textColor: 'text-amber-900',
-    iconColor: 'text-amber-600',
-  },
-} as const;
+/** The visible word stating each message's kind (NFR-5: words, not only colour). */
+export const TOAST_KIND_LABEL: Record<ToastVariant, string> = {
+  success: 'Success',
+  error: 'Problem',
+  warning: 'Warning',
+  info: 'Information',
+};
+
+/** Problems never auto-dismiss (BR10). */
+export function isProblem(variant: ToastVariant): boolean {
+  return variant === 'error';
+}

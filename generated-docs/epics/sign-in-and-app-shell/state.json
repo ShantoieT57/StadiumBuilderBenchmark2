@@ -13,7 +13,10 @@
       "When the back-end is down and you open a signed-in page (e.g. /upload), you are sent to the sign-in screen rather than an error page; the 'can't reach the app' message appears when you then try to sign in. Is that acceptable?",
       "Connection message wording: \"We can't reach the app right now. Check your connection and try again.\" Confirm or reword.",
       "The proxy forwards only the Accept, Accept-Language, Content-Type, Cookie and Last-Event-ID headers to the back-end (no Origin or Referer). Sign-in works this way; confirm no later endpoint depends on other headers.",
-      "The no-access screen shows the heading 'No access' above the approved message. Is that heading wording acceptable?"
+      "The no-access screen shows the heading 'No access' above the approved message. Is that heading wording acceptable?",
+      "Success messages close themselves after 5 seconds. Is that the right length of time?",
+      "Warning messages (none are raised yet) are announced immediately but still close after 5 seconds; only Problem messages stay on screen. Is that what you want?",
+      "The sign-in 'can't reach the app' message stays inside the sign-in card (persistent, announced to screen readers) rather than as a pop-up message. Acceptable?"
     ],
     "manualTestResults": []
   },
@@ -34,20 +37,20 @@
       "completedAt": "2026-10-15T07:18:54.230Z"
     },
     "3": {
-      "status": "pending",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
-      "completedAt": null
+      "startedAt": "2026-10-15T07:19:45.280Z",
+      "completedAt": "2026-10-15T07:22:30.777Z"
     },
     "4": {
-      "status": "pending",
+      "status": "in-progress",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
+      "startedAt": "2026-10-15T07:22:30.778Z",
       "completedAt": null
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T07:18:54.231Z"
+  "lastUpdated": "2026-10-15T07:22:30.778Z"
 }
