@@ -31,3 +31,11 @@
   - a "fully reviewed" note when nothing is left to review
   - the processing history, stage by stage
 - **Back to the list.** "Back to dashboard" and the browser Back button both return to the list exactly as it was left.
+
+## Story 5: File states and download
+
+- **Download.** The file details screen can download the original file under its original name.
+- **Failed files.** They show why they failed, with no retry.
+- **Uploaded or processing files.** They say their transactions are not available yet.
+- **Cancelled files.** They say when and by whom, and that the original was discarded.
+- **Live refresh.** The screen refreshes on its own when the open file changes.

@@ -12,7 +12,6 @@
  *
  * NOT generated here (transport left to the epics that build them):
  * - POST /files (UploadFile): multipart/form-data; see `UploadFileFormFields`.
- * - GET /files/{fileId}/content (DownloadFile): binary text/csv download.
  * - GET /transactions/export (ExportTransactions): CSV attachment download; see `ExportTransactionsQuery`.
  * - GET /events (StreamEvents): text/event-stream; see `SseEventName` and `SseEventData`.
  *
@@ -74,6 +73,16 @@ export const getFiles = (params?: ListFilesQuery) =>
 /** GET /files/{fileId} - a file's details and processing history. */
 export const getFile = (fileId: string) =>
   get<FileDetails>(`/files/${encodeURIComponent(fileId)}`);
+
+/**
+ * GET /files/{fileId}/content - the original uploaded file, as a Blob (text/csv).
+ * 410 once the file has been cancelled (the original is discarded).
+ */
+export const downloadFileContent = (fileId: string) =>
+  apiClient<Blob>(`/files/${encodeURIComponent(fileId)}/content`, {
+    method: 'GET',
+    isBinaryResponse: true,
+  });
 
 /** GET /files/{fileId}/invalid-rows - importers only; 409 unless the file is waiting for corrections. */
 export const getInvalidRows = (fileId: string) =>

@@ -11,7 +11,8 @@
     "introducesSharedSurface": false,
     "unverifiedAssumptions": [
       "Show-filter chip reads \"Showing cancelled\" / \"Showing active and cancelled\" with a \"Remove Show filter\" button. Wording OK?",
-      "The processing stage for invalid rows is labelled \"Waiting for corrections\" on the file details screen. Wording OK?"
+      "The processing stage for invalid rows is labelled \"Waiting for corrections\" on the file details screen. Wording OK?",
+      "Download failures other than a cancelled file or an unreachable back-end show the back-end message under the title \"The file could not be downloaded\". Wording OK?"
     ],
     "manualTestResults": []
   },
@@ -46,13 +47,13 @@
       "completedAt": "2026-10-15T11:47:30.624Z"
     },
     "5": {
-      "status": "in-progress",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
       "startedAt": "2026-10-15T11:47:30.624Z",
-      "completedAt": null
+      "completedAt": "2026-10-15T11:50:53.061Z"
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T11:47:30.624Z"
+  "lastUpdated": "2026-10-15T11:50:53.061Z"
 }

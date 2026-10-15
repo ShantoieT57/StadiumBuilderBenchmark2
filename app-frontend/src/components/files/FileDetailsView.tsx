@@ -11,10 +11,17 @@
  * - Processing history: every stage in the order returned, times to the second.
  * - Loading, problem + Retry (reloads in place) and not-found (404) states (NFR-2).
  * - "Back to dashboard" returns to the remembered Dashboard view (BR2).
+ * - Failed: "Why it failed" with the reason verbatim, no retry (R13, BR9).
+ * - Transactions not available yet: counts as plain text plus a note (R14, BR8).
+ * - Cancelled: when and by whom, original discarded, no download (R15, BR7).
+ * - "Download original" (canDownload) through the API client; never shows or
+ *   logs the content (NFR-6, NFR-7).
+ * - Refetches in place on `file-changed` / `transactions-changed` for this file
+ *   and on `resync` (no loading state).
  */
 
 import Link from 'next/link';
-import { ArrowLeftIcon } from 'lucide-react';
+import { ArrowLeftIcon, DownloadIcon } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -39,8 +46,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { getFile } from '@/lib/api/endpoints';
+import { useEvents } from '@/contexts/EventsContext';
+import { useToast } from '@/contexts/ToastContext';
+import { downloadFileContent, getFile } from '@/lib/api/endpoints';
 import {
+  isAPIError,
   isNetworkError,
   isRedirectingToSignIn,
   statusOf,
@@ -78,6 +88,39 @@ const LOAD_FAILED_TITLE = 'The file could not be loaded';
 const LOAD_FAILED_MESSAGE = 'Something went wrong. Please try again.';
 const UNREACHABLE_MESSAGE =
   "We can't reach the app right now. Check your connection and try again.";
+export const NOT_AVAILABLE_YET_MESSAGE =
+  "This file's transactions are not available yet.";
+export const FAILURE_REASON_TITLE = 'Why it failed';
+export const ORIGINAL_DISCARDED_MESSAGE =
+  'The original file was discarded when the file was cancelled, so it can no longer be downloaded.';
+export const DOWNLOAD_ORIGINAL_LABEL = 'Download original';
+export const DOWNLOAD_STARTED_MESSAGE = 'Download started';
+const DOWNLOAD_FAILED_TITLE = 'The file could not be downloaded';
+export const DOWNLOAD_DISCARDED_MESSAGE =
+  'The original file is no longer available because the file was cancelled.';
+/** How long the temporary download URL lives before it is revoked. */
+const REVOKE_DELAY_MS = 1000;
+
+/** The problem wording for a failed download: the actual error, never the content. */
+function downloadProblemMessage(error: unknown): string {
+  if (statusOf(error) === 410) return DOWNLOAD_DISCARDED_MESSAGE;
+  if (isNetworkError(error)) return UNREACHABLE_MESSAGE;
+  if (isAPIError(error) && error.message.trim() !== '') return error.message;
+  return LOAD_FAILED_MESSAGE;
+}
+
+/** Saves `blob` as `fileName` through a temporary object URL (never read or shown). */
+function saveBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.hidden = true;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
+}
 
 const noSubscription = () => () => {};
 
@@ -211,7 +254,9 @@ function TransactionCounts({ file }: { file: FileDetails }) {
           );
         })}
       </ul>
-      {/* Not-available-yet message (areTransactionsAvailable false) goes here. */}
+      {!file.areTransactionsAvailable && (
+        <p className="text-muted-foreground">{NOT_AVAILABLE_YET_MESSAGE}</p>
+      )}
       {file.isFullyReviewed && (
         <p className="text-success font-medium">{FULLY_REVIEWED_MESSAGE}</p>
       )}
@@ -267,18 +312,88 @@ function ProcessingHistory({ stages }: { stages: ProcessingStageEntry[] }) {
   );
 }
 
+/** "Why it failed": the back-end's reason, verbatim. No retry (BR9). */
+function FailureReason({ reason }: { reason: string | null }) {
+  return (
+    <Alert variant="destructive">
+      <AlertTitle>{FAILURE_REASON_TITLE}</AlertTitle>
+      <AlertDescription>
+        <p>{reason ?? 'No reason was given.'}</p>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** When and by whom the file was cancelled; the original is no longer available. */
+function CancelledNotice({ file }: { file: FileDetails }) {
+  const when =
+    file.cancelledAt !== null ? formatLocalDateTime(file.cancelledAt) : null;
+  const by = file.cancelledBy !== null ? ` by ${file.cancelledBy}` : '';
+  return (
+    <Alert>
+      <AlertTitle>This file was cancelled</AlertTitle>
+      <AlertDescription>
+        {when !== null && <p>{`Cancelled on ${when}${by}`}</p>}
+        <p>{ORIGINAL_DISCARDED_MESSAGE}</p>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** "Download original": saves the uploaded file under its name (NFR-6, NFR-7). */
+function DownloadOriginal({ file }: { file: FileDetails }) {
+  const { showToast } = useToast();
+  const [downloading, setDownloading] = useState(false);
+
+  const download = () => {
+    setDownloading(true);
+    downloadFileContent(file.id).then(
+      (blob) => {
+        setDownloading(false);
+        saveBlob(blob, file.fileName);
+        showToast({ variant: 'success', title: DOWNLOAD_STARTED_MESSAGE });
+      },
+      (error: unknown) => {
+        setDownloading(false);
+        if (isRedirectingToSignIn(error)) return;
+        showToast({
+          variant: 'error',
+          title: DOWNLOAD_FAILED_TITLE,
+          message: downloadProblemMessage(error),
+        });
+      },
+    );
+  };
+
+  return (
+    <div>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={download}
+        disabled={downloading}
+      >
+        <DownloadIcon aria-hidden="true" />
+        {DOWNLOAD_ORIGINAL_LABEL}
+      </Button>
+    </div>
+  );
+}
+
 function FileDetailsContent({ file }: { file: FileDetails }) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <FileHeader file={file} />
-      {/* Failure reason panel ("Why it failed", status Failed) goes here. */}
-      {/* Cancelled information (when and by whom) goes here. */}
+      {file.status === 'Failed' && (
+        <FailureReason reason={file.failureReason} />
+      )}
+      {file.isCancelled && <CancelledNotice file={file} />}
       <div className="grid min-w-0 gap-4 md:grid-cols-2">
         <RowSummary file={file} />
         <TransactionCounts file={file} />
       </div>
       <ProcessingHistory stages={file.processingHistory} />
-      {/* Download original button (canDownload) goes here. */}
+      {file.canDownload && <DownloadOriginal file={file} />}
     </div>
   );
 }
@@ -308,6 +423,22 @@ export function FileDetailsView({ fileId }: { fileId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live refresh in place: updates for this file, and resync after a gap.
+  const { subscribe } = useEvents();
+  useEffect(() => {
+    const refreshIfThisFile = (event: { fileId: string }) => {
+      if (event.fileId === fileId) void load();
+    };
+    const unsubscribers = [
+      subscribe('file-changed', refreshIfThisFile),
+      subscribe('transactions-changed', refreshIfThisFile),
+      subscribe('resync', () => {
+        void load();
+      }),
+    ];
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [subscribe, load, fileId]);
 
   // Ignore answers that arrive after the screen has gone.
   useEffect(
