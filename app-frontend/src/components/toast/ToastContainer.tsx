@@ -13,7 +13,6 @@ import { ToastContainerProps } from '@/types/toast';
 
 export function ToastContainer({
   position = 'top-right',
-  maxToasts = 3,
 }: ToastContainerProps = {}) {
   const { toasts, dismissToast } = useToast();
 
@@ -37,8 +36,9 @@ export function ToastContainer({
     }
   };
 
-  // Limit number of visible toasts
-  const visibleToasts = toasts.slice(-maxToasts);
+  // The provider keeps the on-screen limit (TOAST_DEFAULTS.MAX_TOASTS), so
+  // every message it holds is shown: a problem is never hidden here.
+  const visibleToasts = toasts;
 
   if (visibleToasts.length === 0) {
     return null;

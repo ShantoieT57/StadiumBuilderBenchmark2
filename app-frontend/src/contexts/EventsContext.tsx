@@ -11,7 +11,9 @@
  *   502 while the back-end restarts) a new connection is opened after the same
  *   5 seconds.
  * - `session-ended` closes the connection for good and returns the person to
- *   sign-in with the matching reason (BR4 / BR7).
+ *   sign-in with the matching reason (BR4 / BR7). A reconnect after the
+ *   session ended also gets it: the `/api` proxy answers a refused stream with
+ *   a `session-ended` event rather than a 401 the browser cannot read.
  * - `close()` (sign-out) closes it for good; `reopen()` undoes that if the
  *   sign-out could not be completed.
  * - Holding the stream is not session activity, and nothing here polls

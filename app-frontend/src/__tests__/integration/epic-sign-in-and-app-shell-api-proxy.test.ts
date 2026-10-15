@@ -7,6 +7,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GET, PATCH, POST } from '@/app/api/[...path]/route';
+import { sessionEndedFrame, unauthenticatedBody } from '@/mocks/data/identity';
 
 const FILE_ID = '3f2b8c1e-4d5a-4b6c-8e7f-1a2b3c4d5e6f';
 const SESSION = 'txn_session=abc123';
@@ -82,4 +83,65 @@ describe('API proxy', () => {
       expect(backend).not.toHaveBeenCalled();
     },
   );
+
+  describe('live stream (GET /events) refused', () => {
+    it('tells the stream the session ended when the back-end answers 401', async () => {
+      backend.mockResolvedValueOnce(
+        new Response(JSON.stringify(unauthenticatedBody('SessionExpired')), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+      const response = await GET(request('GET', '/events', SESSION));
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toMatch(
+        /^text\/event-stream/,
+      );
+      expect(await response.text()).toBe(sessionEndedFrame('SessionExpired'));
+    });
+
+    it('tells the stream the person is not signed in when there is no session', async () => {
+      const response = await GET(request('GET', '/events'));
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toMatch(
+        /^text\/event-stream/,
+      );
+      expect(await response.text()).toBe(sessionEndedFrame('NotSignedIn'));
+      expect(backend).not.toHaveBeenCalled();
+    });
+
+    it('passes any other refusal of the stream through unchanged', async () => {
+      backend.mockResolvedValueOnce(
+        new Response('Service starting', {
+          status: 401,
+          headers: { 'content-type': 'text/plain' },
+        }),
+      );
+
+      const response = await GET(request('GET', '/events', SESSION));
+
+      expect(response.status).toBe(401);
+      expect(await response.text()).toBe('Service starting');
+    });
+
+    it('still answers 401 to other signed-in operations', async () => {
+      backend.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ message: 'Signed out.', reason: 'SignedOut' }),
+          { status: 401, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+      const response = await GET(request('GET', '/transactions', SESSION));
+
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({
+        message: 'Signed out.',
+        reason: 'SignedOut',
+      });
+    });
+  });
 });

@@ -325,9 +325,12 @@ async function handleErrorResponse(
   // Central 401 handling (BR4): the session has ended, so leave for sign-in
   // with the reason. `/auth/*` calls are excluded: a 401 from sign-in means
   // wrong credentials, and `/auth/me` callers decide for themselves.
-  if (statusCode === 401 && !isAuthEndpoint(url)) {
-    redirectToSignIn(parsed.reason);
-  }
+  // The error is still thrown (so awaits and `finally` blocks settle), marked
+  // `redirecting` so catch paths show nothing during the page load.
+  const redirecting =
+    statusCode === 401 && !isAuthEndpoint(url)
+      ? redirectToSignIn(parsed.reason)
+      : false;
 
   const validationMessages = parsed.errors
     ? Object.values(parsed.errors).flat()
@@ -362,6 +365,7 @@ async function handleErrorResponse(
   if (parsed.reason !== undefined) error.reason = parsed.reason;
   if (parsed.errors !== undefined) error.errors = parsed.errors;
   if (parsed.raw !== undefined) error.body = parsed.raw;
+  if (redirecting) error.redirecting = true;
 
   throw error;
 }

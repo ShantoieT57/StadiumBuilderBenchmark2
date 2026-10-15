@@ -11,11 +11,17 @@ Next.js 16 frontend application with TypeScript, React 19, Tailwind CSS 4 and Sh
    ```
 
 2. **Configure environment**
-   Create a `.env.local` file:
+   `npm install` creates `.env.local` from `.env.example`. The back-end address is
+   the server-only `BACKEND_URL` (default `http://localhost:5100/api`):
 
    ```env
-   NEXT_PUBLIC_API_BASE_URL=http://localhost:8042
+   BACKEND_URL=http://localhost:5100/api
    ```
+
+   The browser never calls the back-end directly: it calls the same-origin `/api/*`
+   routes, which the Next.js server proxies to `BACKEND_URL` (session cookie
+   included). `BACKEND_URL` is read at request time, so it is never baked into the
+   browser bundle and must not be a `NEXT_PUBLIC_*` variable.
 
 3. **Run development server**
    ```bash

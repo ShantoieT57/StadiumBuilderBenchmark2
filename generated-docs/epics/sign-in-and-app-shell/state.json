@@ -18,7 +18,8 @@
       "Warning messages (none are raised yet) are announced immediately but still close after 5 seconds; only Problem messages stay on screen. Is that what you want?",
       "The sign-in 'can't reach the app' message stays inside the sign-in card (persistent, announced to screen readers) rather than as a pop-up message. Acceptable?",
       "Wording check: idle timeout says \"You were inactive for 60 minutes, so we signed you out. Sign in again to continue.\"; sign-in elsewhere says \"Your account was signed in on another device or browser, so we signed you out here.\" Acceptable?",
-      "When signed out by signing out on another device, this tab returns to the plain sign-in screen with no explanation. Confirm no \"you signed out elsewhere\" message is wanted."
+      "When signed out by signing out on another device, this tab returns to the plain sign-in screen with no explanation. Confirm no \"you signed out elsewhere\" message is wanted.",
+      "When three problem messages are already showing and a success message arrives, four messages show briefly instead of three. Check this looks acceptable on a narrow screen."
     ],
     "manualTestResults": []
   },
@@ -54,5 +55,5 @@
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T07:31:30.031Z"
+  "lastUpdated": "2026-10-15T07:58:14.953Z"
 }

@@ -29,14 +29,19 @@ import {
 const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 
 /**
- * Keeps at most MAX_TOASTS messages, dropping the oldest auto-dismissing ones
- * first so a problem is never pushed off screen by later messages.
+ * Keeps at most MAX_TOASTS messages by dropping the oldest auto-dismissing
+ * ones, never the message just added (`newId`) and never a problem. When only
+ * problems and the new message are left, the limit is exceeded instead, so
+ * neither a problem nor the message just raised is lost.
  */
-function trimToLimit(toasts: Toast[]): Toast[] {
+function trimToLimit(toasts: Toast[], newId: string): Toast[] {
   const result = [...toasts];
   while (result.length > TOAST_DEFAULTS.MAX_TOASTS) {
-    const oldestTransient = result.findIndex((t) => !isProblem(t.variant));
-    result.splice(oldestTransient === -1 ? 0 : oldestTransient, 1);
+    const oldestTransient = result.findIndex(
+      (t) => t.id !== newId && !isProblem(t.variant),
+    );
+    if (oldestTransient === -1) break;
+    result.splice(oldestTransient, 1);
   }
   return result;
 }
@@ -91,7 +96,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       };
 
       setToasts((prevToasts) => {
-        const updated = trimToLimit([...prevToasts, newToast]);
+        const updated = trimToLimit([...prevToasts, newToast], id);
         // Release timers of any messages trimmed away.
         prevToasts
           .filter((t) => !updated.includes(t))

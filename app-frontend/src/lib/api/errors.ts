@@ -6,7 +6,10 @@
  */
 import type { APIError } from '@/types/api';
 
-/** Proxy statuses that mean "the back-end could not be reached". */
+/**
+ * Proxy statuses that mean "the back-end could not be reached". The API client
+ * is the one place that maps them (to the statusCode-0 network error).
+ */
 export const UNREACHABLE_STATUSES: readonly number[] = [502, 503, 504];
 
 /** True when `error` has the shape the API client throws. */
@@ -20,17 +23,22 @@ export function isAPIError(error: unknown): error is APIError {
 }
 
 /**
- * True when the request never got an answer from the back-end: fetch threw,
- * or the same-origin proxy answered 502-504. Distinct from any HTTP refusal
- * (e.g. a 401 for wrong credentials).
+ * True when the request never got an answer from the back-end: the client's
+ * network error (statusCode 0), which it throws when fetch threw or the
+ * same-origin proxy answered 502-504. Distinct from any HTTP refusal (e.g. a
+ * 401 for wrong credentials).
  */
 export function isNetworkError(error: unknown): boolean {
   if (!isAPIError(error)) return false;
-  return (
-    error.isNetworkError === true ||
-    error.statusCode === 0 ||
-    UNREACHABLE_STATUSES.includes(error.statusCode ?? -1)
-  );
+  return error.isNetworkError === true || error.statusCode === 0;
+}
+
+/**
+ * True when the client's central 401 handler has already sent the page to
+ * sign-in. A catch path returns early for it: no problem message, no retry.
+ */
+export function isRedirectingToSignIn(error: unknown): boolean {
+  return isAPIError(error) && error.redirecting === true;
 }
 
 /** The HTTP status of an API error, or undefined for anything else. */

@@ -68,7 +68,6 @@ export interface ToastContainerProps {
     | 'bottom-left'
     | 'top-center'
     | 'bottom-center';
-  maxToasts?: number; // Maximum number of messages to display at once (default: 3)
 }
 
 /**
@@ -77,6 +76,7 @@ export interface ToastContainerProps {
 export const TOAST_DEFAULTS = {
   /** Auto-dismiss delay for success / info / warning messages. */
   DURATION: 5000, // 5 seconds
+  /** On-screen limit, enforced by the provider; exceeded only to keep problems and the newest message. */
   MAX_TOASTS: 3,
   POSITION: 'top-right' as const,
   DISMISSIBLE: true,

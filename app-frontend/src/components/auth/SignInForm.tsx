@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -52,6 +53,9 @@ function RequiredMark() {
 export function SignInForm() {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
+  // Stays true once signed in: the form must not be re-submitted while the
+  // landing page loads (a second sign-in would end the first session).
+  const [signedIn, setSignedIn] = useState(false);
 
   const {
     register,
@@ -68,6 +72,7 @@ export function SignInForm() {
     setFormError(null);
     try {
       const user = await signIn(values);
+      setSignedIn(true);
       router.replace(landingPathFor(user.role));
     } catch (error) {
       setFormError(signInFailureMessage(error));
@@ -90,12 +95,9 @@ export function SignInForm() {
           </p>
 
           {formError && (
-            <p
-              role="alert"
-              className="border-destructive text-destructive rounded-md border px-3 py-2 text-sm"
-            >
-              {formError}
-            </p>
+            <Alert variant="destructive" className="border-destructive">
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
           )}
 
           <div className="flex flex-col gap-2">
@@ -150,8 +152,12 @@ export function SignInForm() {
             )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? 'Signing in…' : 'Sign in'}
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isSubmitting || signedIn}
+          >
+            {isSubmitting || signedIn ? 'Signing in…' : 'Sign in'}
           </Button>
         </CardContent>
       </form>

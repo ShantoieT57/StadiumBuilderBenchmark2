@@ -38,6 +38,12 @@ export interface APIError {
   errors?: Record<string, string[]>;
   /** The parsed JSON error body as received (e.g. the 409 `{ message, transaction }`). */
   body?: unknown;
+  /**
+   * True when the central 401 handler has already sent the page to sign-in
+   * (a full page load is under way). Callers show nothing for it; see
+   * `isRedirectingToSignIn` in `@/lib/api/errors`.
+   */
+  redirecting?: boolean;
 }
 
 export type QueryParamScalar = string | number | boolean;

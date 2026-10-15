@@ -34,9 +34,12 @@ export function signInPathForReason(reason: unknown): string {
  * Leaves the app for the sign-in screen with a full page load, so nothing of
  * the signed-in session stays in memory or in the client router cache.
  * Does nothing outside a browser or when already on the sign-in screen.
+ *
+ * @returns true when the page is now leaving for sign-in.
  */
-export function redirectToSignIn(reason: unknown): void {
-  if (typeof window === 'undefined') return;
-  if (window.location.pathname === SIGN_IN_PATH) return;
+export function redirectToSignIn(reason: unknown): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.location.pathname === SIGN_IN_PATH) return false;
   window.location.assign(signInPathForReason(reason));
+  return true;
 }

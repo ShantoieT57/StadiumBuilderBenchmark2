@@ -9,6 +9,13 @@
  * - When the back-end cannot be reached, the proxy answers 502 so the client
  *   can tell a connection problem from an HTTP refusal.
  *
+ * - The live stream (`GET /events`) never answers the browser with a 401: an
+ *   `EventSource` cannot read an error response and would just reconnect
+ *   forever. A refused stream (no cookie here, or the back-end's 401
+ *   `{ message, reason }`) is answered 200 `text/event-stream` with a single
+ *   `session-ended` event carrying that reason, then the stream ends, so the
+ *   tab's live connection leaves for sign-in like any other ended session.
+ *
  * - Only the documented back-end operations are forwarded: the method and path
  *   are validated against `BACKEND_ENDPOINTS` (ids as UUIDs); anything else gets
  *   a 404 and never reaches the back-end.
@@ -22,11 +29,16 @@
 import type { NextRequest } from 'next/server';
 
 import { requireAuth } from '@/lib/auth/requireAuth';
+import { toUnauthenticatedReason } from '@/lib/auth/signIn';
 import { backendUrl } from '@/lib/server/backend';
 import {
   BACKEND_ENDPOINTS,
   type BackendEndpoint,
 } from '@/lib/server/backendEndpoints';
+import type {
+  SessionEndedEvent,
+  UnauthenticatedResponse,
+} from '@/types/api-generated';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,28 +100,94 @@ function notFound(): Response {
   return Response.json({ message: 'Not found.' }, { status: 404 });
 }
 
+/** True for the live stream, `GET /events`. */
+function isEventStream(request: NextRequest): boolean {
+  return request.method === 'GET' && backendPath(request) === '/events';
+}
+
+/** Reads a 401 `{ message, reason }` body; undefined when it is not one. */
+async function unauthenticatedBody(
+  response: Response,
+): Promise<UnauthenticatedResponse | undefined> {
+  if (!response.headers.get('content-type')?.includes('json')) return undefined;
+  try {
+    const body: unknown = await response.json();
+    if (typeof body !== 'object' || body === null) return undefined;
+    const { message, reason } = body as Record<string, unknown>;
+    if (typeof message !== 'string' || typeof reason !== 'string') {
+      return undefined;
+    }
+    return { message, reason: toUnauthenticatedReason(reason) };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A complete event stream holding only a `session-ended` event: how a refused
+ * `GET /events` is told to the browser's `EventSource`.
+ */
+function sessionEndedStream(ended: UnauthenticatedResponse): Response {
+  const data: SessionEndedEvent = {
+    message: ended.message,
+    reason: ended.reason,
+  };
+  return new Response(
+    `event: session-ended\ndata: ${JSON.stringify(data)}\n\n`,
+    {
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        'x-accel-buffering': 'no',
+      },
+    },
+  );
+}
+
 async function proxy(request: NextRequest): Promise<Response> {
   const endpoint = endpointFor(request);
   if (!endpoint) return notFound();
   if (!endpoint.anonymous) {
     const denied = requireAuth(request);
-    if (denied) return denied;
+    if (denied) {
+      if (isEventStream(request)) {
+        const ended = await unauthenticatedBody(denied);
+        if (ended) return sessionEndedStream(ended);
+      }
+      return denied;
+    }
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
 
+  // The request body is streamed through too (e.g. a file upload is never
+  // held whole in memory); a streamed body needs `duplex: 'half'`.
+  const init: RequestInit & { duplex?: 'half' } = {
+    method: request.method,
+    headers: forwardedHeaders(request),
+    redirect: 'manual',
+    cache: 'no-store',
+    signal: request.signal,
+  };
+  if (hasBody && request.body) {
+    init.body = request.body;
+    init.duplex = 'half';
+  }
+
   let upstream: Response;
   try {
-    upstream = await fetch(targetUrl(request), {
-      method: request.method,
-      headers: forwardedHeaders(request),
-      body: hasBody ? await request.arrayBuffer() : undefined,
-      redirect: 'manual',
-      cache: 'no-store',
-      signal: request.signal,
-    });
+    upstream = await fetch(targetUrl(request), init);
   } catch {
     return unreachable();
+  }
+
+  if (upstream.status === 401 && isEventStream(request)) {
+    const ended = await unauthenticatedBody(upstream.clone());
+    if (ended) {
+      await upstream.body?.cancel();
+      return sessionEndedStream(ended);
+    }
   }
 
   const headers = new Headers();
