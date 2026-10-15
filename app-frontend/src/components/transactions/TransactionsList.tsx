@@ -28,6 +28,10 @@ import {
 } from 'react';
 
 import { TransactionStatusBadge } from '@/components/transactions/TransactionStatusBadge';
+import {
+  fileNameFor,
+  useFileOptions,
+} from '@/components/transactions/useFileOptions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -56,13 +60,19 @@ import {
   formatTransactionType,
 } from '@/lib/format/transaction';
 import {
+  activeFilters,
+  hasActiveFilters,
+} from '@/lib/transactions/activeFilters';
+import {
   TRANSACTION_PAGE_SIZES,
   parseListState,
   toListSearch,
   toTransactionsQuery,
+  withFilters,
   withPage,
   withPageSize,
   withSort,
+  type TransactionListFilters,
   type TransactionListState,
   type TransactionPageSize,
 } from '@/lib/transactions/listQuery';
@@ -75,6 +85,7 @@ import type {
 
 export const LOADING_TRANSACTIONS_MESSAGE = 'Loading transactions';
 export const NO_TRANSACTIONS_MESSAGE = 'No transactions yet';
+export const NO_MATCH_TITLE = 'No transactions match your filters';
 export const LOAD_FAILED_TITLE = 'Transactions could not be loaded';
 const LOAD_FAILED_MESSAGE = 'Something went wrong. Please try again.';
 const UNREACHABLE_MESSAGE =
@@ -242,6 +253,48 @@ function TransactionsCompactList({
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Filters that match nothing (TL-08): the active filters and one action to clear them. */
+function NoMatch({
+  filters,
+  onClear,
+}: {
+  filters: TransactionListFilters;
+  onClear: () => void;
+}) {
+  const headingId = useId();
+  // Only look up file names when a file filter needs one.
+  const { files } = useFileOptions(filters.fileId !== undefined);
+  const entries = activeFilters(filters, (fileId) =>
+    fileNameFor(files, fileId),
+  );
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex min-w-0 flex-col gap-3 rounded-lg border p-4"
+    >
+      <h2 id={headingId} className="text-lg font-semibold">
+        {NO_MATCH_TITLE}
+      </h2>
+      <p className="text-muted-foreground text-sm">Filters in use:</p>
+      <ul
+        aria-label="Filters in use"
+        className="flex list-disc flex-col gap-1 pl-5 text-sm break-all"
+      >
+        {entries.map((entry) => (
+          <li key={entry.key}>
+            {entry.label}: {entry.value}
+          </li>
+        ))}
+      </ul>
+      <div>
+        <Button type="button" variant="outline" onClick={onClear}>
+          Clear all filters
+        </Button>
+      </div>
+    </section>
   );
 }
 
@@ -422,10 +475,17 @@ export function TransactionsList() {
     content = (
       <p className="text-muted-foreground">{NO_TRANSACTIONS_MESSAGE}</p>
     );
+  } else if (result.items.length === 0 && hasActiveFilters(view.filters)) {
+    content = (
+      <NoMatch
+        filters={view.filters}
+        onClear={() => navigate(withFilters(view, {}))}
+      />
+    );
   } else if (result.items.length === 0) {
     content = (
       <p className="text-muted-foreground">
-        No transactions match the current view.
+        There are no transactions on this page.
       </p>
     );
   } else {

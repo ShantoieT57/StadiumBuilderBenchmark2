@@ -10,7 +10,9 @@
     "introducesSharedSurface": false,
     "unverifiedAssumptions": [
       "Status colours: Imported amber (waiting for a decision), Approved green, Rejected red — always with the word. Is amber right for Imported?",
-      "On a phone each transaction card shows reference, status, date, amount and Credit/Debit with a Details button; account, description and file name appear only on desktop and the details page. Right set for phones?"
+      "On a phone each transaction card shows reference, status, date, amount and Credit/Debit with a Details button; account, description and file name appear only on desktop and the details page. Right set for phones?",
+      "The File filter offers only the 50 most recently processed files (older files opened from a link show as \"Selected file\"). Enough?",
+      "On tablets (768–1023px) the filters sit above the list; from 1024px they sit beside it. Acceptable?"
     ],
     "manualTestResults": []
   },
@@ -24,20 +26,20 @@
       "completedAt": "2026-10-15T09:07:14.165Z"
     },
     "2": {
-      "status": "in-progress",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
       "startedAt": "2026-10-15T09:07:14.165Z",
-      "completedAt": null
+      "completedAt": "2026-10-15T09:14:49.214Z"
     },
     "3": {
-      "status": "pending",
+      "status": "in-progress",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
+      "startedAt": "2026-10-15T09:14:49.215Z",
       "completedAt": null
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T09:07:14.165Z"
+  "lastUpdated": "2026-10-15T09:14:49.215Z"
 }
