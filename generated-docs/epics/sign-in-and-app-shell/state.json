@@ -5,12 +5,21 @@
     "name": "Sign-in and app shell",
     "createdAt": "2026-10-15T06:39:32.724Z",
     "dependsOn": [],
-    "introducesSharedSurface": false,
-    "unverifiedAssumptions": [],
+    "introducesSharedSurface": true,
+    "unverifiedAssumptions": [
+      "Verify the sign-in actually sticks: the app assumes the back-end's sign-in cookie survives the trip through the app's own address (the proxy) on localhost. If the cookie is dropped or rejected on the way back, sign-in will appear to succeed but you'll be bounced straight back to the sign-in screen.",
+      "Verify you get signed out without clicking: the app assumes the live connection's 'session ended' notice gets through the app's proxy promptly. If the proxy holds the stream back, the first browser in the 'sign in elsewhere' test won't return to sign-in on its own, and only will on your next click.",
+      "Verify the 'can't reach the app' message: the app assumes that a stopped back-end produces a recognisable failure through the proxy. If the proxy turns it into something that looks like an ordinary error, you might see a generic error or the wrong message instead of the connection-problem message."
+    ],
     "manualTestResults": []
   },
-  "phase": "PLAN",
-  "stories": {},
+  "phase": "BUILD",
+  "stories": {
+    "1": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
+    "2": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
+    "3": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
+    "4": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null }
+  },
   "halt": null,
-  "lastUpdated": "2026-10-15T06:39:32.724Z"
+  "lastUpdated": "2026-10-15T07:00:00.000Z"
 }
