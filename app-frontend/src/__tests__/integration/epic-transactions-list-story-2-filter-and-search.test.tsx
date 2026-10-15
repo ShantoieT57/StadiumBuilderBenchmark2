@@ -258,7 +258,7 @@ describe('Epic transactions-list, Story 2: filters from a link', () => {
   }
 
   // AC-3, AC-5
-  it.each([
+  it.each<{ case: string; url: Record<string, string>; dropped: string[] }>([
     {
       case: 'a negative amount',
       url: { minAmount: '-5', maxAmount: '900' },
