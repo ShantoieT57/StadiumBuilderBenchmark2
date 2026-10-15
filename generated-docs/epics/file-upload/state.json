@@ -10,7 +10,9 @@
     "introducesSharedSurface": false,
     "unverifiedAssumptions": [
       "A file over 10 MB should show \"The file is too large. Files can be up to 10 MB.\" through the app proxy (not a generic upload failure). Claude verifies this against the real back-end at manual test.",
-      "A real upload's progress bar moves through the app proxy (Claude verifies at manual test)."
+      "A real upload's progress bar moves through the app proxy (Claude verifies at manual test).",
+      "Several server validation messages at once are shown together on one line. Readable enough?",
+      "An unexpected server answer keeps the file and offers \"Try again\" with \"The file could not be uploaded.\" Right offer?"
     ],
     "manualTestResults": []
   },
@@ -24,13 +26,13 @@
       "completedAt": "2026-10-15T12:26:51.819Z"
     },
     "2": {
-      "status": "in-progress",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
       "startedAt": "2026-10-15T12:26:51.820Z",
-      "completedAt": null
+      "completedAt": "2026-10-15T12:30:17.119Z"
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T12:26:51.820Z"
+  "lastUpdated": "2026-10-15T12:30:17.119Z"
 }

@@ -31,21 +31,68 @@ import {
 } from '@/components/ui/tooltip';
 import { fileDetailsHref } from '@/components/files/FilesList';
 import { useToast } from '@/contexts/ToastContext';
-import { isRedirectingToSignIn } from '@/lib/api/errors';
+import {
+  isAPIError,
+  isNetworkError,
+  isRedirectingToSignIn,
+  statusOf,
+} from '@/lib/api/errors';
 import { uploadFile } from '@/lib/api/upload';
 import {
   dashboardListHref,
   rememberedFileListSearch,
 } from '@/lib/files/listReturn';
 import { formatFileSize } from '@/lib/format/file';
+import { uploadRefusal } from '@/lib/validation/upload';
 import { cn } from '@/lib/utils';
 import type { FileKind, UploadedFile } from '@/types/api-generated';
 
 /** Shown under the file field when Upload is selected with no file chosen (BR8). */
 export const CHOOSE_A_FILE_MESSAGE = 'Choose a file to upload.';
 
-/** Fallback for a failed upload; story 2 replaces it with the specific wording. */
-const UPLOAD_FAILED_MESSAGE = 'The file could not be uploaded.';
+/** An unexpected server problem (not one of the known refusals); offers Try again. */
+export const UPLOAD_FAILED_MESSAGE = 'The file could not be uploaded.';
+
+/** The connection dropped part way (network error, abort, proxy 502-504) (R6). */
+export function uploadInterruptedMessage(fileName: string): string {
+  return `The upload of ${fileName} failed. Check your connection and try again.`;
+}
+
+/** Statuses whose server message is shown word for word (BR3). */
+const REFUSAL_STATUSES: readonly number[] = [400, 403, 413, 415];
+
+/**
+ * What the field shows after a failed upload. A refusal clears the file; a
+ * failure keeps it so "Try again" re-sends it.
+ */
+interface UploadProblem {
+  message: string;
+  /** The file "Try again" re-sends; absent for refusals. */
+  retry?: File;
+}
+
+/** Turns a rejected upload into the field's problem (BR3, R6). Names the file only (NFR-4). */
+function problemFor(error: unknown, chosen: File): UploadProblem {
+  if (isNetworkError(error)) {
+    return { message: uploadInterruptedMessage(chosen.name), retry: chosen };
+  }
+  const status = statusOf(error);
+  if (
+    isAPIError(error) &&
+    status !== undefined &&
+    REFUSAL_STATUSES.includes(status)
+  ) {
+    const validationMessages = error.errors
+      ? Object.values(error.errors).flat()
+      : [];
+    const message =
+      validationMessages.length > 0
+        ? validationMessages.join(' ')
+        : error.message;
+    if (message.trim() !== '') return { message };
+  }
+  return { message: UPLOAD_FAILED_MESSAGE, retry: chosen };
+}
 
 const KIND_OPTIONS: readonly { value: FileKind; label: string }[] = [
   { value: 'BankTransactions', label: 'Bank transactions' },
@@ -113,7 +160,7 @@ export function UploadForm() {
 
   const [file, setFile] = useState<File | null>(null);
   const [kind, setKind] = useState<FileKind>(DEFAULT_KIND);
-  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [problem, setProblem] = useState<UploadProblem | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [announcement, setAnnouncement] = useState('');
@@ -130,14 +177,19 @@ export function UploadForm() {
   useEffect(() => () => uploadAbort.current?.abort(), []);
 
   /**
-   * A file was chosen or dropped. Story 2 adds its refusals here (several
-   * files, not a .csv, an invalid name) before the file is accepted.
+   * A file was chosen or dropped. Several files, a non-.csv file or an invalid
+   * name are refused before any request, and the refused file is cleared (BR2).
    */
   const chooseFiles = (files: File[]) => {
-    const [chosen] = files;
-    if (!chosen) return;
-    setFile(chosen);
-    setFieldError(null);
+    if (files.length === 0) return;
+    const refusal = uploadRefusal(files.map((chosen) => chosen.name));
+    if (refusal) {
+      setFile(null);
+      setProblem({ message: refusal });
+      return;
+    }
+    setFile(files[0]);
+    setProblem(null);
   };
 
   const onInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -172,7 +224,7 @@ export function UploadForm() {
 
   const removeFile = () => {
     setFile(null);
-    setFieldError(null);
+    setProblem(null);
   };
 
   const startUpload = async (chosen: File) => {
@@ -180,7 +232,7 @@ export function UploadForm() {
     uploadAbort.current = controller;
     setUploading(true);
     setProgress(0);
-    setFieldError(null);
+    setProblem(null);
     setAnnouncement(`Uploading ${chosen.name}`);
 
     try {
@@ -198,9 +250,11 @@ export function UploadForm() {
       setAnnouncement(`Upload finished: ${uploaded.fileName} uploaded.`);
     } catch (error) {
       if (controller.signal.aborted || isRedirectingToSignIn(error)) return;
-      // Story 2 turns refusals and failures into their specific messages.
       setAnnouncement('');
-      setFieldError(UPLOAD_FAILED_MESSAGE);
+      const next = problemFor(error, chosen);
+      // A refused file is cleared so the Importer chooses again; a failed one is kept.
+      setFile(next.retry ?? null);
+      setProblem(next);
     } finally {
       if (uploadAbort.current === controller) uploadAbort.current = null;
       if (!controller.signal.aborted) {
@@ -214,12 +268,18 @@ export function UploadForm() {
     event.preventDefault();
     if (uploading) return;
     if (!file) {
-      setFieldError(CHOOSE_A_FILE_MESSAGE);
+      setProblem({ message: CHOOSE_A_FILE_MESSAGE });
       return;
     }
     void startUpload(file);
   };
 
+  const tryAgain = () => {
+    if (uploading || !problem?.retry) return;
+    void startUpload(problem.retry);
+  };
+
+  const fieldError = problem?.message ?? null;
   const describedBy = [hintId, fieldError ? errorId : null]
     .filter(Boolean)
     .join(' ');
@@ -324,10 +384,27 @@ export function UploadForm() {
             </div>
           )}
 
-          {fieldError && (
-            <p id={errorId} role="alert" className="text-sm text-destructive">
-              {fieldError}
-            </p>
+          {problem && (
+            <div className="flex min-w-0 flex-col items-start gap-2">
+              <p
+                id={errorId}
+                role="alert"
+                className="text-sm break-words text-destructive"
+              >
+                {problem.message}
+              </p>
+              {problem.retry && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploading}
+                  onClick={tryAgain}
+                >
+                  Try again
+                </Button>
+              )}
+            </div>
           )}
         </div>
 
