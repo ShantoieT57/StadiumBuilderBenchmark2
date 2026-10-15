@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "epic": {
+    "slug": "sign-in-and-app-shell",
+    "name": "Sign-in and app shell",
+    "createdAt": "2026-10-15T06:39:32.724Z",
+    "dependsOn": [],
+    "introducesSharedSurface": false,
+    "unverifiedAssumptions": [],
+    "manualTestResults": []
+  },
+  "phase": "PLAN",
+  "stories": {},
+  "halt": null,
+  "lastUpdated": "2026-10-15T06:39:32.724Z"
+}
