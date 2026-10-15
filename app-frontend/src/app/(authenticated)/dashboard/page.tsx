@@ -1,13 +1,15 @@
 import { Suspense } from 'react';
 
+import { DashboardCounts } from '@/components/files/DashboardCounts';
 import { FileFilters } from '@/components/files/FileFilters';
 import { FilesList } from '@/components/files/FilesList';
 import { RouteGuard } from '@/components/shell/RouteGuard';
 import { requireSession } from '@/lib/auth/requireSession';
 
 /**
- * Dashboard: every file, sortable and paged, for both roles. The counts
- * (story 3) sit above the list and the filters (story 2) beside it.
+ * Dashboard: every file, sortable and paged, for both roles. The status and
+ * transaction counts sit above the list (loading on their own, so neither
+ * blocks the other) and the filters beside it.
  */
 export default async function DashboardPage() {
   const user = await requireSession();
@@ -15,7 +17,15 @@ export default async function DashboardPage() {
     <RouteGuard route="/dashboard">
       <div className="flex min-w-0 flex-col gap-4">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        {/* Slot: <DashboardCounts /> (file and transaction counts). */}
+        <Suspense
+          fallback={
+            <section aria-label="Dashboard summary">
+              <p className="text-muted-foreground">Loading counts…</p>
+            </section>
+          }
+        >
+          <DashboardCounts />
+        </Suspense>
         <Suspense
           fallback={<p className="text-muted-foreground">Loading files…</p>}
         >

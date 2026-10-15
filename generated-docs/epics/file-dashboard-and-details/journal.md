@@ -15,3 +15,10 @@
   - They follow the same pattern as the transactions filters and are kept in the address bar.
   - They show as removable labels, with a Clear all.
 - **No match.** When no file matches, the list says so and offers to clear the filters.
+
+## Story 3: Dashboard status and transaction counts
+
+- **Counts above the list.** The Dashboard shows file counts per status, and Imported / Approved / Rejected transaction counts, above the list.
+  - A file count filters the list.
+  - A transaction count opens the transactions list filtered to that status.
+  - The counts load independently, so a problem with them never blocks the file list.
