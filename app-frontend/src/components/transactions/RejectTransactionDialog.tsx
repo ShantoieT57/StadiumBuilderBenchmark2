@@ -355,11 +355,16 @@ export function RejectTransactionDialog({
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
-          {/* The space sits outside the span: a span's own text is trimmed when
-              the accessible name is computed. */}
-          {`${REJECT_LABEL} `}
-          <span className="sr-only">{reference}</span>
+        {/* The reference is in aria-label, not an sr-only span, so it is not
+            page text (the table's reference cells stay the only match). The
+            visible text starts the name (WCAG 2.5.3 label-in-name). */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={`${REJECT_LABEL} ${reference}`}
+        >
+          {REJECT_LABEL}
         </Button>
       </DialogTrigger>
       <DialogContent

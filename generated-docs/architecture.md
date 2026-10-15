@@ -71,7 +71,7 @@
 - Browser code calls only the same-origin `/api` (via the API client); server code reaches the back-end via `backendUrl()`. No `NEXT_PUBLIC_*` back-end URL.
 - Signed-in screens (including the `/` landing redirect) live under `app/(authenticated)/` and render no `<main>` of their own (the layout owns it); standalone screens (sign-in, privacy) render their own `<main>`.
 - Every signed-in page wraps its content in `<RouteGuard route=...>` (the layout does not re-run on client navigation, so the role check lives in the page).
-- Text buttons / links with a visually hidden suffix: keep the separating space outside the `sr-only` span (`{'Approve '}<span className="sr-only">{reference}</span>`); a space at the start of the span is dropped from the accessible name in jsdom.
+- Action buttons whose accessible name adds the row reference ("Approve <reference>"): put the full name in `aria-label` (visible text first, for label-in-name) rather than an `sr-only` span, so the reference is not page text and table-text locators match only the reference cell. Links/buttons with a non-reference sr-only suffix keep the separating space outside the span; a space at the start of the span is dropped from the accessible name in jsdom.
 - Icon-only buttons: `aria-label` + shadcn Tooltip with its own `TooltipProvider disableHoverableContent`, shown on hover and focus.
 - Success / problem feedback that is not tied to one form field goes through `useToast()`; status colours use the `success` / `warning` / `destructive` tokens, never palette utilities.
 - Forms: required fields carry `required` + a visible `*`; validation on blur and on submit (react-hook-form `mode: 'onBlur'`, `reValidateMode: 'onBlur'`); field errors linked by `aria-describedby`.

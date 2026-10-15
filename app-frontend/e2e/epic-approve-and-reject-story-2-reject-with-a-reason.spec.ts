@@ -390,12 +390,8 @@ test.describe('Epic approve-and-reject, Story 2: Reject a transaction with a rea
     await expect(approvedRow).toContainText('Imported');
     await expect(rejectedRow).toContainText('Imported');
 
-    // Another tab decides both first, in this test's mock run.
+    // Another tab approves the first one, in this test's mock run.
     await decideElsewhere(request, approvedId, runValue, { kind: 'approve' });
-    await decideElsewhere(request, rejectedId, runValue, {
-      kind: 'reject',
-      reason: otherReason,
-    });
 
     const notifications = page.getByRole('region', { name: 'Notifications' });
 
@@ -431,6 +427,12 @@ test.describe('Epic approve-and-reject, Story 2: Reject a transaction with a rea
     await expect(approvedProblem).toBeHidden();
 
     // Already rejected elsewhere: the message also gives the stored reason.
+    // Decided only now — the list reloads after the first 409, which would
+    // otherwise already show this row as Rejected (and hide its Reject).
+    await decideElsewhere(request, rejectedId, runValue, {
+      kind: 'reject',
+      reason: otherReason,
+    });
     await rejectTrigger(rejectedRow, rejectedRef).click();
     const rejectedDialog = rejectDialog(page, rejectedRef);
     await expect(rejectedDialog).toBeVisible();

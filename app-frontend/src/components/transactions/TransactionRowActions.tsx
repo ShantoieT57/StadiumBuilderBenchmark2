@@ -2,8 +2,8 @@
 
 /**
  * The Approver's decisions on one transaction row (R1, BR1): Approve and Reject,
- * as text buttons with the reference in a visually hidden suffix ("Approve
- * <reference>", "Reject <reference>"). Rendered by the list only for an Approver
+ * as text buttons whose aria-label adds the reference ("Approve <reference>",
+ * "Reject <reference>"). Rendered by the list only for an Approver
  * on an Imported row; hidden otherwise, never disabled.
  */
 

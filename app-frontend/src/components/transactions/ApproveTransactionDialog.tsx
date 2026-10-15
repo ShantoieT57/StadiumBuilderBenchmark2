@@ -152,11 +152,16 @@ export function ApproveTransactionDialog({
   return (
     <AlertDialog open={open} onOpenChange={changeOpen}>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
-          {/* The space sits outside the span: a span's own text is trimmed when
-              the accessible name is computed. */}
-          {`${APPROVE_LABEL} `}
-          <span className="sr-only">{reference}</span>
+        {/* The reference is in aria-label, not an sr-only span, so it is not
+            page text (the table's reference cells stay the only match). The
+            visible text starts the name (WCAG 2.5.3 label-in-name). */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={`${APPROVE_LABEL} ${reference}`}
+        >
+          {APPROVE_LABEL}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent
