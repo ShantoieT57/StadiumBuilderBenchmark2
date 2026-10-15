@@ -45,3 +45,9 @@
 - **Failed refresh keeps data on screen.** If a list, the dashboard counts or a details screen fails to refresh after it has loaded, it keeps showing what it had, with a "Couldn't refresh — showing earlier data" note and Retry. This also applies to the transactions screens.
 - **File counts show active files.** Clicking a file count always shows active files with that status, because the counts only cover active files.
 - **Filter chips.** They now use the standard Badge component, on both list screens.
+
+## Manual test — 2026-10-15
+
+- **Who ran it.** Claude, in a real browser against the real back-end and the production build. The user delegated this approval.
+- **Test data.** Real files in every state: completed, invalid rows, duplicate and cancelled.
+- **Result.** 31/31 passed, including a byte-exact download and a newly uploaded file appearing live on the open dashboard.

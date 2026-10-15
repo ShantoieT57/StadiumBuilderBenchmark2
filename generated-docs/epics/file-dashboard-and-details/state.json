@@ -15,46 +15,54 @@
       "Download failures other than a cancelled file or an unreachable back-end show the back-end message under the title \"The file could not be downloaded\". Wording OK?",
       "When a live update or reload fails after a screen has loaded, the old data stays with a small \"Couldn't refresh — showing earlier data\" note and Retry (applies to the Dashboard, Transactions list and details pages)."
     ],
-    "manualTestResults": []
+    "manualTestResults": [
+      {
+        "by": "Claude (delegated by user; automated browser walkthrough against the real back-end)",
+        "date": "2026-10-15T12:09:05.464Z",
+        "passed": 31,
+        "failed": 0,
+        "notes": "Real files in every state (completed, invalid rows, duplicate, cancelled). Counts, filters incl. local-day process dates, count links, details summary/history, byte-exact download, failure reasons, cancelled info, live update of a newly uploaded file, phone layout."
+      }
+    ]
   },
-  "phase": "EPIC-END",
+  "phase": "COMPLETE-ON-BRANCH",
   "stories": {
     "1": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed-after-fix",
       "startedAt": "2026-10-15T11:28:37.694Z",
       "completedAt": "2026-10-15T11:35:55.005Z"
     },
     "2": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed",
       "startedAt": "2026-10-15T11:35:55.005Z",
       "completedAt": "2026-10-15T11:40:16.819Z"
     },
     "3": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed",
       "startedAt": "2026-10-15T11:40:16.819Z",
       "completedAt": "2026-10-15T11:43:27.106Z"
     },
     "4": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed",
       "startedAt": "2026-10-15T11:43:27.106Z",
       "completedAt": "2026-10-15T11:47:30.624Z"
     },
     "5": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed",
       "startedAt": "2026-10-15T11:47:30.624Z",
       "completedAt": "2026-10-15T11:50:53.061Z"
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T11:50:53.061Z"
+  "lastUpdated": "2026-10-15T12:09:05.464Z"
 }
