@@ -17,32 +17,40 @@
       "While the list updates after a sort, page or filter change, a small \"Updating…\" note appears just above it (a blank line is kept there otherwise). Placement acceptable?",
       "On a phone the Filters panel slides up from the bottom (full width) rather than in from the right. OK?"
     ],
-    "manualTestResults": []
+    "manualTestResults": [
+      {
+        "by": "Claude (automated browser walkthrough against the real back-end, per user preference)",
+        "date": "2026-10-15T09:49:08.026Z",
+        "passed": 32,
+        "failed": 0,
+        "notes": "Real data: sample file (20 rows) + 3 rows on 2026-04-16; 2 Approved, 1 Rejected. List, sort, paging, page size, all filters incl. whole-day end date and partial case-insensitive search, chips, no-match, incoming link, details (System / Approver User / rejection reason), Back and Back-to-transactions, phone layout and Filters sheet, no Approve/Reject/Export for either role."
+      }
+    ]
   },
-  "phase": "EPIC-END",
+  "phase": "COMPLETE-ON-BRANCH",
   "stories": {
     "1": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed",
       "startedAt": "2026-10-15T09:00:56.863Z",
       "completedAt": "2026-10-15T09:07:14.165Z"
     },
     "2": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed-after-fix",
       "startedAt": "2026-10-15T09:07:14.165Z",
       "completedAt": "2026-10-15T09:14:49.214Z"
     },
     "3": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed",
       "startedAt": "2026-10-15T09:14:49.215Z",
       "completedAt": "2026-10-15T09:18:50.348Z"
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T09:18:50.349Z"
+  "lastUpdated": "2026-10-15T10:01:45.273Z"
 }

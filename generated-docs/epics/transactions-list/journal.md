@@ -23,3 +23,8 @@
 - **Phone Filters panel.** It slides up from the bottom, full width, instead of in from the right.
 - **Keyboard picks in dropdowns.** Typing the first letters of an option and pressing Enter now always chooses the typed option, in every dropdown in the app.
 - **Edited generated test.** The story-2 phone e2e test now detects the browser's date-entry order (Chromium on Windows follows the OS regional format) instead of assuming mm/dd/yyyy. Its assertions are unchanged.
+
+## Manual test — 2026-10-15
+
+- **Who ran it.** Claude ran the checks in a real browser, against the real back-end (:5100) and the production build. Test data was the sample file plus 3 extra rows; 2 were approved and 1 rejected through the API.
+- **Result.** 32/32 passed. The user accepted the results and the 7 choices listed at the manual-test approval.
