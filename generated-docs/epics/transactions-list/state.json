@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "epic": {
+    "slug": "transactions-list",
+    "name": "Transactions list and search",
+    "createdAt": "2026-10-15T08:47:39.666Z",
+    "dependsOn": [
+      "sign-in-and-app-shell"
+    ],
+    "introducesSharedSurface": false,
+    "unverifiedAssumptions": [],
+    "manualTestResults": []
+  },
+  "phase": "PLAN",
+  "stories": {},
+  "halt": null,
+  "lastUpdated": "2026-10-15T08:47:39.666Z"
+}
