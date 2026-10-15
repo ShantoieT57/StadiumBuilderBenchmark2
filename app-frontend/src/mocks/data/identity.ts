@@ -58,6 +58,15 @@ export function signInFailureBody(): ErrorResponse {
   return { message: INVALID_CREDENTIALS_MESSAGE };
 }
 
+/** The exact 403 message the back-end sends when the role does not allow a request. */
+export const FORBIDDEN_MESSAGE =
+  'You do not have access to this. Please ask your administrator for access.';
+
+/** 403 body `{ message }` (e.g. an Approver calling POST /files). */
+export function forbiddenBody(): ErrorResponse {
+  return { message: FORBIDDEN_MESSAGE };
+}
+
 /** `data` payload of a `session-ended` SSE event for the given reason. */
 export function sessionEndedEvent(
   reason: UnauthenticatedReason,

@@ -70,14 +70,58 @@
  * Next.js SERVER-side fetches that forward only `txn_session` (e.g. GET auth/me) never
  * carry it, so the override applies to calls made through the browser's /api proxy.
  *
+ * POST files (epic file-upload; multipart/form-data; body via the 5th `respondFor`
+ * argument). Checks in the contract's order (TransactionApi.yaml POST /files), the
+ * first failure decides; messages come from src/mocks/data/uploads.ts:
+ *   1. no ACTIVE session -> 401 (ended reason, else NotSignedIn);
+ *      Approver          -> 403 `forbiddenBody()` (identity.ts FORBIDDEN_MESSAGE)
+ *   2. Content-Type not multipart/form-data -> 415 NOT_MULTIPART_MESSAGE
+ *   3. no boundary / body cannot be parsed (e.g. no closing boundary)
+ *                         -> 400 UNREADABLE_UPLOAD_MESSAGE
+ *   4. any part larger than MOCK_UPLOAD_LIMIT_BYTES, or the whole body larger than
+ *      that + 64 KB      -> 413 FILE_TOO_LARGE_MESSAGE
+ *   5. more than one file (parts with a `filename`, any field, plus plain fields
+ *      named `file`)     -> 400 ONE_FILE_AT_A_TIME_MESSAGE
+ *   6. no part named `file` -> 400 ValidationProblem errors.file [FILE_REQUIRED_MESSAGE];
+ *      a `kind` other than BankTransactions -> 400 ValidationProblem errors.kind
+ *      (both reported together when both fail; a missing `kind` defaults)
+ *   7. file name empty (incl. `filename=""` or a plain `file` field), over 255
+ *      characters, or containing `..`, `\`, `/` or `:` -> 400 INVALID_FILE_NAME_MESSAGE
+ *   8. name not ending in `.csv` (any case) -> 400 NOT_CSV_MESSAGE
+ *   otherwise -> 201 UploadedFile { id (random UUID), fileName, kind: BankTransactions,
+ *                status: Uploaded, uploadedAt (now, ISO) }.
+ * Mock upload limit: MOCK_UPLOAD_LIMIT_BYTES = env E2E_MOCK_UPLOAD_LIMIT_BYTES, default
+ * 1 MB (1048576), so specs exercise the 413 path with a ~1.1 MB buffer instead of
+ * 10 MB. The 413 message is still the production wording ("... up to 10 MB."), as the
+ * mock stands in for the production configuration.
+ * Connection-drop hook (valid .csv names only, checked just before the 201):
+ *   - name starts `drop-once-` -> the FIRST upload of that exact name in this
+ *     process drops the connection; every later upload of it gets the 201 (the
+ *     "Try again" path). Use a name unique to the test (and retry), e.g.
+ *     `drop-once-${testInfo.testId}-${testInfo.retry}.csv`.
+ *   - otherwise name starts `drop-` -> the connection is dropped every time.
+ *   The server destroys the socket without answering; the Next.js /api proxy then
+ *   answers 502, which the client treats as a network failure. From `respondFor`
+ *   the drop shows as `dropConnection: true` (call `route.abort('connectionreset')`).
+ * Uploaded files are remembered per process ONLY by id: GET files/{id} (and
+ * files/{id}/content) answer them as just-uploaded details
+ * (uploads.ts `uploadedFileDetails()`, status Uploaded, never processed), so the
+ * "View file details" link works. They are NEVER added to GET files, GET
+ * transactions or GET dashboard/summary, so the seeded counts other specs rely on
+ * are unchanged. Answers made through `respondFor` inside a spec's `page.route()`
+ * are remembered in the spec worker, not in this server.
+ *
  * Every other request -> 401 `unauthenticatedBody('NotSignedIn')`.
  *
  * Bodies come from the project-wide mock-data sources (never inlined here).
  */
+import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 
 import type {
   FileDetails,
+  FileKind,
+  UploadedFile,
   FileSortColumn,
   FileStatus,
   FileVisibility,
@@ -101,6 +145,7 @@ import {
   toFileListItem,
 } from '../../src/mocks/data/files';
 import {
+  forbiddenBody,
   unauthenticatedBody,
   userInfoFor,
 } from '../../src/mocks/data/identity';
@@ -109,6 +154,34 @@ import {
   seedTransactionDetails,
   toListItem,
 } from '../../src/mocks/data/transactions';
+import {
+  FILE_REQUIRED_MESSAGE,
+  FILE_TOO_LARGE_MESSAGE,
+  INVALID_FILE_NAME_MESSAGE,
+  NOT_CSV_MESSAGE,
+  NOT_MULTIPART_MESSAGE,
+  ONE_FILE_AT_A_TIME_MESSAGE,
+  UNREADABLE_UPLOAD_MESSAGE,
+  createUploadedFile,
+  uploadedFileDetails,
+} from '../../src/mocks/data/uploads';
+
+/**
+ * Largest part (file) POST files accepts in the mock, in bytes. Env
+ * `E2E_MOCK_UPLOAD_LIMIT_BYTES`, default 1 MB. See the header.
+ */
+export const MOCK_UPLOAD_LIMIT_BYTES = Number(
+  process.env.E2E_MOCK_UPLOAD_LIMIT_BYTES ?? 1024 * 1024,
+);
+
+/** Room for boundaries, part headers and other fields on top of the limit (as the back-end). */
+const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
+
+/** File-name prefix that drops the connection on every upload (see header). */
+export const DROP_CONNECTION_PREFIX = 'drop-';
+
+/** File-name prefix that drops the connection on the first upload of that name only. */
+export const DROP_CONNECTION_ONCE_PREFIX = 'drop-once-';
 
 /** Port the mock listens on (127.0.0.1). Must match playwright.config.ts. */
 export const MOCK_BACKEND_PORT = Number(
@@ -203,6 +276,28 @@ export interface MockResponse {
   status: number;
   headers: Record<string, string>;
   body: string;
+  /**
+   * When true the connection must be dropped instead of answering (the server
+   * destroys the socket; a `page.route()` handler calls `route.abort('connectionreset')`).
+   */
+  dropConnection?: boolean;
+}
+
+/** The raw request of a POST files call, for `respondFor`. */
+export interface UploadRequest {
+  /** The request's Content-Type header (with its boundary). */
+  contentType: string | null | undefined;
+  /** The raw request body (e.g. `route.request().postDataBuffer()`). */
+  body: Buffer | Uint8Array | null | undefined;
+}
+
+/** One part of a multipart/form-data body. */
+export interface MultipartPart {
+  /** The form field name, or null when none was given. */
+  name: string | null;
+  /** The file name (`filename*` preferred), '' when sent empty, null for a plain field. */
+  filename: string | null;
+  data: Buffer;
 }
 
 function json(status: number, payload: unknown): MockResponse {
@@ -614,7 +709,10 @@ function listFiles(
 
 /** The file with `id` in `dataset`, or undefined. */
 function findFile(id: string, dataset: MockDataset): FileDetails | undefined {
-  return filesFor(dataset).find((f) => f.id.toLowerCase() === id.toLowerCase());
+  return (
+    filesFor(dataset).find((f) => f.id.toLowerCase() === id.toLowerCase()) ??
+    uploadedFiles.get(id.toLowerCase())
+  );
 }
 
 /** GET /files/{id} over `dataset`. */
@@ -652,6 +750,191 @@ function unauthenticated(
   );
 }
 
+// ---------------------------------------------------------------------------
+// POST /files (upload)
+// ---------------------------------------------------------------------------
+
+/**
+ * Files uploaded through this process, by lower-case id. Served ONLY by
+ * GET files/{id} (+ content) - never listed - so seeded counts never change.
+ */
+const uploadedFiles = new Map<string, FileDetails>();
+
+/** `drop-once-` names whose first upload has already been dropped. */
+const droppedOnce = new Set<string>();
+
+const FILE_KINDS: readonly FileKind[] = ['BankTransactions'];
+const MAX_FILE_NAME_LENGTH = 255;
+
+/** The boundary of a multipart/form-data Content-Type, '' when missing, or null when not multipart. */
+function multipartBoundary(
+  contentType: string | null | undefined,
+): string | null {
+  if (!contentType) return null;
+  const [mediaType, ...params] = contentType.split(';');
+  if (mediaType.trim().toLowerCase() !== 'multipart/form-data') return null;
+  for (const param of params) {
+    const eq = param.indexOf('=');
+    if (eq < 0) continue;
+    if (param.slice(0, eq).trim().toLowerCase() !== 'boundary') continue;
+    return param
+      .slice(eq + 1)
+      .trim()
+      .replace(/^"(.*)"$/, '$1');
+  }
+  return '';
+}
+
+/** The parameters of a `Content-Disposition` header value (names lower-cased). */
+function dispositionParams(value: string): Map<string, string> {
+  const params = new Map<string, string>();
+  const pattern = /;\s*([^=;\s]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^;]*))/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value)) !== null) {
+    const raw =
+      match[2] !== undefined
+        ? match[2].replace(/\\(.)/g, '$1')
+        : match[3].trim();
+    params.set(match[1].toLowerCase(), raw);
+  }
+  return params;
+}
+
+/** Decodes an RFC 5987 `filename*` value (`UTF-8''name%20here`). */
+function decodeExtendedValue(value: string): string {
+  const quote = value.indexOf("''");
+  const encoded = quote >= 0 ? value.slice(quote + 2) : value;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
+/**
+ * Parses a multipart/form-data body. Returns null when it cannot be read (no
+ * opening boundary, a part without a header block, or no closing boundary).
+ */
+export function parseMultipart(
+  body: Buffer,
+  boundary: string,
+): MultipartPart[] | null {
+  const delimiter = Buffer.from(`--${boundary}`);
+  const nextDelimiter = Buffer.from(`\r\n--${boundary}`);
+  const start = body.indexOf(delimiter);
+  if (start < 0) return null;
+  const parts: MultipartPart[] = [];
+  let pos = start + delimiter.length;
+  for (;;) {
+    if (body.subarray(pos, pos + 2).toString('latin1') === '--') return parts;
+    if (body.subarray(pos, pos + 2).toString('latin1') !== '\r\n') return null;
+    pos += 2;
+    const headerEnd = body.indexOf('\r\n\r\n', pos, 'latin1');
+    if (headerEnd < 0) return null;
+    const headers = body
+      .subarray(pos, headerEnd)
+      .toString('utf8')
+      .split('\r\n');
+    const dataStart = headerEnd + 4;
+    const dataEnd = body.indexOf(nextDelimiter, dataStart);
+    if (dataEnd < 0) return null;
+
+    const disposition = headers.find((h) =>
+      h.toLowerCase().startsWith('content-disposition:'),
+    );
+    const params = dispositionParams(
+      disposition ? disposition.slice(disposition.indexOf(':') + 1) : '',
+    );
+    const extended = params.get('filename*');
+    parts.push({
+      name: params.get('name') ?? null,
+      filename:
+        extended !== undefined
+          ? decodeExtendedValue(extended)
+          : (params.get('filename') ?? null),
+      data: body.subarray(dataStart, dataEnd),
+    });
+    pos = dataEnd + nextDelimiter.length;
+  }
+}
+
+/** True when `name` breaks the back-end's file-name rule. */
+function isInvalidFileName(name: string): boolean {
+  return (
+    name.length === 0 ||
+    name.length > MAX_FILE_NAME_LENGTH ||
+    name.includes('..') ||
+    /[\\/:]/.test(name)
+  );
+}
+
+/** POST /files with the raw `upload` request, for the signed-in Importer. */
+function uploadFile(upload: UploadRequest | undefined): MockResponse {
+  const boundary = multipartBoundary(upload?.contentType);
+  if (boundary === null) {
+    return json(415, { message: NOT_MULTIPART_MESSAGE });
+  }
+  const body = Buffer.from(upload?.body ?? new Uint8Array());
+  if (boundary === '' || boundary.length > 128) {
+    return json(400, { message: UNREADABLE_UPLOAD_MESSAGE });
+  }
+  if (body.length > MOCK_UPLOAD_LIMIT_BYTES + MULTIPART_OVERHEAD_BYTES) {
+    return json(413, { message: FILE_TOO_LARGE_MESSAGE });
+  }
+  const parts = parseMultipart(body, boundary);
+  if (parts === null) {
+    return json(400, { message: UNREADABLE_UPLOAD_MESSAGE });
+  }
+  if (parts.some((p) => p.data.length > MOCK_UPLOAD_LIMIT_BYTES)) {
+    return json(413, { message: FILE_TOO_LARGE_MESSAGE });
+  }
+
+  // A part with a filename is a file; a plain field named `file` is a file without a name.
+  const isFile = (p: MultipartPart): boolean =>
+    p.filename !== null || p.name === 'file';
+  if (parts.filter(isFile).length > 1) {
+    return json(400, { message: ONE_FILE_AT_A_TIME_MESSAGE });
+  }
+
+  const errors: Record<string, string[]> = {};
+  const file = parts.find((p) => p.name === 'file');
+  if (!file) errors.file = [FILE_REQUIRED_MESSAGE];
+  const kindPart = parts.find((p) => p.name === 'kind');
+  const kindRaw = kindPart
+    ? kindPart.data.toString('utf8')
+    : 'BankTransactions';
+  const kind = FILE_KINDS.find((k) => k === kindRaw);
+  if (!kind) errors.kind = [`The value '${kindRaw}' is not valid for kind.`];
+  if (!file || !kind) return validationProblem(errors);
+
+  const fileName = file.filename ?? '';
+  if (isInvalidFileName(fileName)) {
+    return json(400, { message: INVALID_FILE_NAME_MESSAGE });
+  }
+  if (!/\.csv$/i.test(fileName)) {
+    return json(400, { message: NOT_CSV_MESSAGE });
+  }
+
+  if (fileName.startsWith(DROP_CONNECTION_ONCE_PREFIX)) {
+    if (!droppedOnce.has(fileName)) {
+      droppedOnce.add(fileName);
+      return { status: 0, headers: {}, body: '', dropConnection: true };
+    }
+  } else if (fileName.startsWith(DROP_CONNECTION_PREFIX)) {
+    return { status: 0, headers: {}, body: '', dropConnection: true };
+  }
+
+  const uploaded: UploadedFile = createUploadedFile({
+    id: randomUUID(),
+    fileName,
+    kind,
+    status: 'Uploaded',
+    uploadedAt: new Date().toISOString(),
+  });
+  uploadedFiles.set(uploaded.id.toLowerCase(), uploadedFileDetails(uploaded));
+  return json(201, uploaded);
+}
+
 const TRANSACTION_ID_PATH = /^\/transactions\/([^/]+)$/;
 const FILE_ID_PATH = /^\/files\/([^/]+)(\/content)?$/;
 
@@ -660,13 +943,24 @@ const FILE_ID_PATH = /^\/files\/([^/]+)(\/content)?$/;
  * e.g. `/auth/me`) given the request's `Cookie` header and, optionally, its query
  * string (`?a=1&b=2`, `a=1&b=2` or URLSearchParams). Usable from `page.route()`
  * handlers too, so browser-side and server-side mocks agree.
+ *
+ * POST /files needs `upload` (its Content-Type and raw body); without it the call
+ * is treated as having no Content-Type (415). When the answer has
+ * `dropConnection: true`, drop the connection instead of answering.
  */
 export function respondFor(
   method: string,
   path: string,
   cookieHeader: string | null | undefined,
   query: URLSearchParams | string = '',
+  upload?: UploadRequest,
 ): MockResponse {
+  if (method === 'POST' && path === '/files') {
+    const role = roleFromCookie(cookieHeader);
+    if (!role) return unauthenticated(cookieHeader);
+    if (role !== 'Importer') return json(403, forbiddenBody());
+    return uploadFile(upload);
+  }
   if (method === 'POST' && path === '/auth/sign-out') {
     return {
       status: 204,
@@ -721,14 +1015,26 @@ export function startMockBackend(
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
     const path = url.pathname.replace(/^\/api/, '');
-    const { status, headers, body } = respondFor(
-      req.method ?? 'GET',
-      path,
-      req.headers.cookie,
-      url.searchParams,
-    );
-    res.writeHead(status, headers);
-    res.end(body);
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      const { status, headers, body, dropConnection } = respondFor(
+        req.method ?? 'GET',
+        path,
+        req.headers.cookie,
+        url.searchParams,
+        {
+          contentType: req.headers['content-type'],
+          body: Buffer.concat(chunks),
+        },
+      );
+      if (dropConnection) {
+        req.socket.destroy();
+        return;
+      }
+      res.writeHead(status, headers);
+      res.end(body);
+    });
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);

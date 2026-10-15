@@ -1,15 +1,11 @@
 import { RouteGuard } from '@/components/shell/RouteGuard';
+import { UploadForm } from '@/components/upload/UploadForm';
 
-/** Placeholder: the Importer's landing page. Replaced by the upload epic. */
+/** The Importer's Upload screen (UP-01..UP-07); Approvers get the no-access message. */
 export default function UploadPage() {
   return (
     <RouteGuard route="/upload">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold">Upload</h1>
-        <p className="text-muted-foreground">
-          Uploading bank transaction files is coming soon.
-        </p>
-      </div>
+      <UploadForm />
     </RouteGuard>
   );
 }

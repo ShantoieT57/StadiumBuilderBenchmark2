@@ -40,10 +40,8 @@ export function ToastContainer({
   // every message it holds is shown: a problem is never hidden here.
   const visibleToasts = toasts;
 
-  if (visibleToasts.length === 0) {
-    return null;
-  }
-
+  // The region stays mounted while empty, so it is in place before the first
+  // message arrives and screens can tell their own messages apart from it.
   return (
     <div
       className={`fixed ${getPositionClasses()} z-50 flex flex-col gap-2 max-w-sm w-full px-4 sm:px-0 pointer-events-none`}
