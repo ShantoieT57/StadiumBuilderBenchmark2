@@ -16,3 +16,11 @@
   - It uses the server's exact wording, clears the refused file and sends nothing.
 - **Refused by the server.** The server's message is shown word for word under the file field. It stays until another file is chosen.
 - **Connection drop.** The file is kept and a "Try again" button sends it again.
+
+## Manual test — 2026-10-15
+
+- **Who ran it.** Claude, against the real back-end. The user delegated this approval.
+- **Result.** 16/16 passed. This includes:
+  - the over-10 MB message coming through the proxy
+  - a smooth 0→100 progress bar under network throttling
+  - live status changes after an upload

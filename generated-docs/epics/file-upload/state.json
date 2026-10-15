@@ -14,21 +14,29 @@
       "Several server validation messages at once are shown together on one line. Readable enough?",
       "An unexpected server answer keeps the file and offers \"Try again\" with \"The file could not be uploaded.\" Right offer?"
     ],
-    "manualTestResults": []
+    "manualTestResults": [
+      {
+        "by": "Claude (delegated by user; automated browser walkthrough against the real back-end)",
+        "date": "2026-10-15T12:50:07.403Z",
+        "passed": 16,
+        "failed": 0,
+        "notes": "Real uploads through the UI: success + live Completed, duplicate naming the earlier file, client refusals, 10.5 MB file → 413 message through the proxy, progress bar 0→100 under throttling, invalid rows → Failed live on dashboard, 360px, approver no-access."
+      }
+    ]
   },
-  "phase": "EPIC-END",
+  "phase": "COMPLETE-ON-BRANCH",
   "stories": {
     "1": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed-after-fix",
       "startedAt": "2026-10-15T12:20:13.459Z",
       "completedAt": "2026-10-15T12:26:51.819Z"
     },
     "2": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed",
       "startedAt": "2026-10-15T12:26:51.820Z",
       "completedAt": "2026-10-15T12:30:17.119Z"
     }
