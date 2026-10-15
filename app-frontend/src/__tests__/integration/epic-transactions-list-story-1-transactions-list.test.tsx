@@ -373,4 +373,75 @@ describe('Epic transactions-list, Story 1: Transactions list', () => {
       }),
     ).not.toBeInTheDocument();
   });
+
+  // AC-3, AC-4
+  it('offers a way back from a page past the end of the list', async () => {
+    const user = userEvent.setup();
+    expect(dataset).toHaveLength(30);
+    // An old link to page 9 of 5 per page, when there are now 6 pages.
+    navigation.search = new URLSearchParams({ page: '9', pageSize: '5' });
+
+    renderList();
+
+    expect(
+      await screen.findByText('There are no transactions on this page.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No transactions yet')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Go to last page' }));
+    const urls = navigation.push.mock.calls.map((call) => String(call[0]));
+    expect(urls).toContainEqual(
+      expect.stringMatching(
+        /^\/transactions(?=.*[?&]page=6(&|$))(?=.*[?&]pageSize=5(&|$))/,
+      ),
+    );
+  });
+
+  // AC-2, AC-4
+  it('keeps the previous rows while a new view loads, marked as updating', async () => {
+    const byDateDesc = servePage(undefined).items;
+    const byAmountAsc = servePage({
+      sortBy: 'Amount',
+      sortDirection: 'Asc',
+    }).items;
+    expect(byAmountAsc[0].reference).not.toBe(byDateDesc[0].reference);
+
+    const view = renderList();
+    const table = await screen.findByRole('table');
+    await waitFor(() =>
+      expect(rowFor(table, byDateDesc[0].reference)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText('Updating…')).not.toBeInTheDocument();
+    expect(table.closest('[aria-busy="true"]')).toBeNull();
+
+    // The person sorts by amount; the new page has not answered yet.
+    let answer: (page: TransactionPage) => void = () => undefined;
+    mockGet.mockImplementationOnce(
+      () =>
+        new Promise<TransactionPage>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    navigation.search = new URLSearchParams({ sortBy: 'Amount' });
+    view.rerender(
+      <ToastProvider>
+        <EventsProvider>
+          <TransactionsList />
+        </EventsProvider>
+        <ToastContainer />
+      </ToastProvider>,
+    );
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Updating…');
+    expect(rowFor(table, byDateDesc[0].reference)).toBeInTheDocument();
+    expect(table.closest('[aria-busy="true"]')).not.toBeNull();
+
+    await act(async () => {
+      answer(servePage({ sortBy: 'Amount', sortDirection: 'Asc' }));
+    });
+    const sorted = screen.getByRole('table');
+    expect(rowFor(sorted, byAmountAsc[0].reference)).toBeInTheDocument();
+    expect(screen.queryByText('Updating…')).not.toBeInTheDocument();
+    expect(sorted.closest('[aria-busy="true"]')).toBeNull();
+  });
 });

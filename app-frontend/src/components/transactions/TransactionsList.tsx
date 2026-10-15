@@ -15,7 +15,6 @@
  */
 
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from 'lucide-react';
 import {
   useCallback,
@@ -32,6 +31,7 @@ import {
   fileNameFor,
   useFileOptions,
 } from '@/components/transactions/useFileOptions';
+import { useListQuery } from '@/components/transactions/useListQuery';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -65,7 +65,6 @@ import {
 } from '@/lib/transactions/activeFilters';
 import {
   TRANSACTION_PAGE_SIZES,
-  parseListState,
   toListSearch,
   toTransactionsQuery,
   withFilters,
@@ -87,10 +86,18 @@ import type {
 export const LOADING_TRANSACTIONS_MESSAGE = 'Loading transactions';
 export const NO_TRANSACTIONS_MESSAGE = 'No transactions yet';
 export const NO_MATCH_TITLE = 'No transactions match your filters';
+/** Shown while a changed view (sort, page, filters) loads over the previous rows. */
+export const UPDATING_MESSAGE = 'Updating…';
 export const LOAD_FAILED_TITLE = 'Transactions could not be loaded';
 const LOAD_FAILED_MESSAGE = 'Something went wrong. Please try again.';
 const UNREACHABLE_MESSAGE =
   "We can't reach the app right now. Check your connection and try again.";
+
+interface LoadedPage {
+  page: TransactionPage;
+  /** The `GET /transactions` query (as JSON) this page answers. */
+  queryKey: string;
+}
 
 interface Column {
   sortBy: TransactionSortColumn;
@@ -362,20 +369,16 @@ function Paging({
 }
 
 export function TransactionsList() {
-  const router = useRouter();
-  const pathname = usePathname() ?? '/transactions';
-  const searchParams = useSearchParams();
-  const urlSearch = searchParams?.toString() ?? '';
+  const { view, navigate } = useListQuery();
   const { subscribe } = useEvents();
 
-  const view = useMemo(
-    () => parseListState(new URLSearchParams(urlSearch)),
-    [urlSearch],
-  );
   const listSearch = useMemo(() => toListSearch(view), [view]);
   const query = useMemo(() => toTransactionsQuery(view), [view]);
+  const queryKey = useMemo(() => JSON.stringify(query), [query]);
 
-  const [result, setResult] = useState<TransactionPage | null>(null);
+  // The last page received, with the query it answers: while it answers an
+  // older query the rows stay in place and the list shows it is updating.
+  const [loaded, setLoaded] = useState<LoadedPage | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const queryRef = useRef<ListTransactionsQuery>(query);
   const requestRef = useRef(0);
@@ -387,7 +390,7 @@ export function TransactionsList() {
     return getTransactions(params).then(
       (page) => {
         if (request !== requestRef.current) return;
-        setResult(page);
+        setLoaded({ page, queryKey: JSON.stringify(params) });
         setFailure(null);
       },
       (error: unknown) => {
@@ -428,20 +431,14 @@ export function TransactionsList() {
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, [subscribe, load]);
 
-  const navigate = useCallback(
-    (next: TransactionListState) => {
-      const search = toListSearch(next);
-      router.push(search ? `${pathname}?${search}` : pathname, {
-        scroll: false,
-      });
-    },
-    [router, pathname],
-  );
-
   const retry = () => {
     setFailure(null);
     void load(queryRef.current);
   };
+
+  const result = loaded?.page ?? null;
+  const showUpdates = loaded !== null && failure === null;
+  const updating = showUpdates && loaded.queryKey !== queryKey;
 
   let content: ReactNode;
   if (failure !== null) {
@@ -476,7 +473,7 @@ export function TransactionsList() {
     content = (
       <p className="text-muted-foreground">{NO_TRANSACTIONS_MESSAGE}</p>
     );
-  } else if (result.items.length === 0 && hasActiveFilters(view.filters)) {
+  } else if (result.totalCount === 0 && hasActiveFilters(view.filters)) {
     content = (
       <NoMatch
         filters={view.filters}
@@ -484,10 +481,23 @@ export function TransactionsList() {
       />
     );
   } else if (result.items.length === 0) {
+    // Past the last page (an old link, or rows removed by a live refresh):
+    // offer a way back rather than leaving the list with no paging controls.
+    const lastPage = Math.max(result.totalPages, 1);
     content = (
-      <p className="text-muted-foreground">
-        There are no transactions on this page.
-      </p>
+      <div className="flex flex-col items-start gap-2">
+        <p className="text-muted-foreground">
+          There are no transactions on this page.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => navigate(withPage(view, lastPage))}
+        >
+          Go to last page
+        </Button>
+      </div>
     );
   } else {
     content = (
@@ -508,5 +518,21 @@ export function TransactionsList() {
     );
   }
 
-  return <div className="flex min-w-0 flex-col gap-4">{content}</div>;
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      {/* Always present once loaded (a live region announces changes), and a
+          fixed height so the rows below do not move when it fills. */}
+      {showUpdates && (
+        <p role="status" className="text-muted-foreground min-h-5 text-sm">
+          {updating ? UPDATING_MESSAGE : null}
+        </p>
+      )}
+      <div
+        aria-busy={updating ? true : undefined}
+        className="flex min-w-0 flex-col gap-4"
+      >
+        {content}
+      </div>
+    </div>
+  );
 }

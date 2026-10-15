@@ -248,3 +248,95 @@ describe('Epic transactions-list, Story 2: range validation', () => {
     );
   });
 });
+
+describe('Epic transactions-list, Story 2: filters from a link', () => {
+  /** The query of every GET /transactions the list sent. */
+  function transactionQueries(): Record<string, unknown>[] {
+    return mockGet.mock.calls
+      .filter(([path]) => path === '/transactions')
+      .map(([, params]) => (params ?? {}) as Record<string, unknown>);
+  }
+
+  // AC-3, AC-5
+  it.each([
+    {
+      case: 'a negative amount',
+      url: { minAmount: '-5', maxAmount: '900' },
+      dropped: ['minAmount'],
+    },
+    {
+      case: 'a date not in yyyy-MM-dd form',
+      url: { dateFrom: '15/04/2026', dateTo: '2026-04-30' },
+      dropped: ['dateFrom'],
+    },
+    {
+      case: 'a minimum above the maximum',
+      url: { minAmount: '500', maxAmount: '100' },
+      dropped: ['minAmount', 'maxAmount'],
+    },
+    {
+      case: 'a start date after the end date',
+      url: { dateFrom: '2026-04-20', dateTo: '2026-04-10' },
+      dropped: ['dateFrom', 'dateTo'],
+    },
+  ])(
+    'ignores $case in the URL instead of sending it to the API',
+    async ({ url, dropped }) => {
+      navigation.search = new URLSearchParams({ status: 'Approved', ...url });
+      serveApi(pageOf(seedTransactions()));
+
+      render(
+        <ToastProvider>
+          <EventsProvider>
+            <TransactionsList />
+          </EventsProvider>
+        </ToastProvider>,
+      );
+
+      expect(await screen.findByRole('table')).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /retry/i }),
+      ).not.toBeInTheDocument();
+      const [query] = transactionQueries();
+      expect(query.status).toBe('Approved');
+      for (const key of dropped) {
+        expect(query).not.toHaveProperty(key);
+      }
+      for (const [key, value] of Object.entries(url)) {
+        if (!dropped.includes(key)) {
+          expect(String(query[key])).toBe(value);
+        }
+      }
+    },
+  );
+});
+
+describe('Epic transactions-list, Story 2: file names', () => {
+  // AC-4
+  it('loads the file list once for the filter form and the no-match state together', async () => {
+    navigation.search = new URLSearchParams({
+      fileId: SEEDED_FILE_IDS.aprilBatch2,
+    });
+    serveApi(pageOf([], { hasAnyTransactions: true }));
+
+    render(
+      <ToastProvider>
+        <EventsProvider>
+          <TransactionFilters />
+          <TransactionsList />
+        </EventsProvider>
+      </ToastProvider>,
+    );
+
+    const noMatch = await screen.findByRole('region', {
+      name: /no transactions match/i,
+    });
+    expect(
+      await within(noMatch).findByText(/april-batch-2\.csv/i),
+    ).toBeInTheDocument();
+    const fileRequests = mockGet.mock.calls.filter(([path]) =>
+      String(path).startsWith('/files'),
+    );
+    expect(fileRequests).toHaveLength(1);
+  });
+});

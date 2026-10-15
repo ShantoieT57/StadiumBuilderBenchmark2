@@ -14,23 +14,16 @@
  *   same form in a Sheet. Active filters show as removable chips in both.
  */
 
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SlidersHorizontalIcon, XIcon } from 'lucide-react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
 import {
   fileNameFor,
   useFileOptions,
 } from '@/components/transactions/useFileOptions';
+import { useListQuery } from '@/components/transactions/useListQuery';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -62,8 +55,7 @@ import {
   type ActiveFilter,
 } from '@/lib/transactions/activeFilters';
 import {
-  parseListState,
-  toListSearch,
+  TRANSACTION_STATUSES,
   withFilters,
   type TransactionListFilters,
 } from '@/lib/transactions/listQuery';
@@ -72,18 +64,13 @@ import {
   transactionFiltersSchema,
   type TransactionFilterValues,
 } from '@/lib/validation/transactionFilters';
-import type { FileListItem, TransactionStatus } from '@/types/api-generated';
+import type { FileListItem } from '@/types/api-generated';
 
 /** How long typing must pause before the search is applied. */
 export const SEARCH_PAUSE_MS = 500;
 
 const FILTERS_TITLE = 'Filters';
 const ALL = 'all';
-const STATUS_OPTIONS: readonly TransactionStatus[] = [
-  'Imported',
-  'Approved',
-  'Rejected',
-];
 
 type TextFilterKey = keyof TransactionFilterValues;
 const TEXT_KEYS: readonly TextFilterKey[] = [
@@ -222,6 +209,21 @@ function FilterForm({
   };
   const { onChange: onSearchChange, ...searchField } = register('search');
 
+  // Choosing a Status or File while a search pause is pending applies that
+  // search too, so the timer cannot later push a URL built from stale filters
+  // (before the router has caught up) and undo the choice.
+  const selectFilter = (next: TransactionListFilters) => {
+    if (searchTimer.current === undefined) {
+      onSelectFilter(next);
+      return;
+    }
+    cancelSearch();
+    onSelectFilter({
+      ...next,
+      search: getValues('search').trim() || undefined,
+    });
+  };
+
   const onSubmit = (values: TransactionFilterValues) => {
     onApply({
       status: filters.status,
@@ -278,9 +280,9 @@ function FilterForm({
         <Select
           value={filters.status ?? ALL}
           onValueChange={(value) =>
-            onSelectFilter({
+            selectFilter({
               ...filters,
-              status: STATUS_OPTIONS.find((status) => status === value),
+              status: TRANSACTION_STATUSES.find((status) => status === value),
             })
           }
         >
@@ -289,7 +291,7 @@ function FilterForm({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All statuses</SelectItem>
-            {STATUS_OPTIONS.map((status) => (
+            {TRANSACTION_STATUSES.map((status) => (
               <SelectItem key={status} value={status}>
                 {formatTransactionStatus(status)}
               </SelectItem>
@@ -303,7 +305,7 @@ function FilterForm({
         <Select
           value={filters.fileId ?? ALL}
           onValueChange={(value) =>
-            onSelectFilter({
+            selectFilter({
               ...filters,
               fileId: value === ALL ? undefined : value,
             })
@@ -447,26 +449,14 @@ function ActiveFilterChips({
 }
 
 export function TransactionFilters() {
-  const router = useRouter();
-  const pathname = usePathname() ?? '/transactions';
-  const searchParams = useSearchParams();
-  const urlSearch = searchParams?.toString() ?? '';
-  const view = useMemo(
-    () => parseListState(new URLSearchParams(urlSearch)),
-    [urlSearch],
-  );
+  const { view, navigate: navigateTo } = useListQuery();
   const { files, failed } = useFileOptions();
   const [sheetOpen, setSheetOpen] = useState(false);
   const headingId = useId();
 
   const navigate = useCallback(
-    (filters: TransactionListFilters) => {
-      const search = toListSearch(withFilters(view, filters));
-      router.push(search ? `${pathname}?${search}` : pathname, {
-        scroll: false,
-      });
-    },
-    [router, pathname, view],
+    (filters: TransactionListFilters) => navigateTo(withFilters(view, filters)),
+    [navigateTo, view],
   );
 
   const entries = activeFilters(view.filters, (fileId) =>

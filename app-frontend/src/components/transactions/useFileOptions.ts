@@ -20,6 +20,45 @@ export interface FileOptions {
 }
 
 /**
+ * One `GET /files` shared by every mounted user of the file options (the filter
+ * form and the no-match state), held only while at least one is mounted, so a
+ * screen opened later loads a fresh list. A failed load is not kept.
+ */
+interface SharedLoad {
+  promise: Promise<FileListItem[]>;
+  users: number;
+}
+
+let shared: SharedLoad | null = null;
+
+function acquire(): SharedLoad {
+  if (shared === null) {
+    const load: SharedLoad = {
+      promise: getFiles({
+        pageSize: FILE_OPTIONS_LIMIT,
+        sortBy: 'LastProcessedAt',
+        sortDirection: 'Desc',
+      }).then((page) => page.items),
+      users: 0,
+    };
+    load.promise.catch(() => {
+      if (shared === load) shared = null;
+    });
+    shared = load;
+  }
+  shared.users += 1;
+  return shared;
+}
+
+function release(load: SharedLoad): void {
+  load.users -= 1;
+  // Wait a tick: a remount in the same commit (React strict mode) keeps the load.
+  queueMicrotask(() => {
+    if (load.users === 0 && shared === load) shared = null;
+  });
+}
+
+/**
  * The most recently processed files (one page of 50), for the file filter and
  * for showing a filtered file by its name. Older files are not offered.
  */
@@ -32,13 +71,10 @@ export function useFileOptions(enabled = true): FileOptions {
   useEffect(() => {
     if (!enabled) return undefined;
     let current = true;
-    getFiles({
-      pageSize: FILE_OPTIONS_LIMIT,
-      sortBy: 'LastProcessedAt',
-      sortDirection: 'Desc',
-    }).then(
-      (page) => {
-        if (current) setState({ files: page.items, failed: false });
+    const load = acquire();
+    load.promise.then(
+      (files) => {
+        if (current) setState({ files, failed: false });
       },
       (error: unknown) => {
         if (!current || isRedirectingToSignIn(error)) return;
@@ -47,6 +83,7 @@ export function useFileOptions(enabled = true): FileOptions {
     );
     return () => {
       current = false;
+      release(load);
     };
   }, [enabled]);
 

@@ -30,7 +30,7 @@ const SORT_COLUMNS: readonly TransactionSortColumn[] = [
   'FileName',
 ];
 
-const STATUSES: readonly TransactionStatus[] = [
+export const TRANSACTION_STATUSES: readonly TransactionStatus[] = [
   'Imported',
   'Approved',
   'Rejected',
@@ -76,7 +76,29 @@ function amount(params: SearchParamsReader, name: string): number | undefined {
   const value = text(params, name);
   if (value === undefined) return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  // The API takes non-negative amounts only; a hand-edited URL must not 400 the list.
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function date(params: SearchParamsReader, name: string): string | undefined {
+  const value = text(params, name);
+  return value !== undefined && DATE_PATTERN.test(value) ? value : undefined;
+}
+
+/**
+ * A range from the URL: a reversed one (start after end) is dropped whole, as
+ * the API answers it with 400. yyyy-MM-dd dates compare correctly as strings.
+ */
+function ordered<T extends string | number>(
+  from: T | undefined,
+  to: T | undefined,
+): [T | undefined, T | undefined] {
+  if (from !== undefined && to !== undefined && from > to) {
+    return [undefined, undefined];
+  }
+  return [from, to];
 }
 
 function pick<T extends string>(
@@ -102,13 +124,21 @@ export function parseListState(
       (size) => size === Number(text(params, 'pageSize')),
     ) ?? DEFAULT_PAGE_SIZE;
 
+  const [dateFrom, dateTo] = ordered(
+    date(params, 'dateFrom'),
+    date(params, 'dateTo'),
+  );
+  const [minAmount, maxAmount] = ordered(
+    amount(params, 'minAmount'),
+    amount(params, 'maxAmount'),
+  );
   const filters: TransactionListFilters = {
-    status: pick(text(params, 'status'), STATUSES),
+    status: pick(text(params, 'status'), TRANSACTION_STATUSES),
     fileId: text(params, 'fileId'),
-    dateFrom: text(params, 'dateFrom'),
-    dateTo: text(params, 'dateTo'),
-    minAmount: amount(params, 'minAmount'),
-    maxAmount: amount(params, 'maxAmount'),
+    dateFrom,
+    dateTo,
+    minAmount,
+    maxAmount,
     search: text(params, 'search'),
   };
 

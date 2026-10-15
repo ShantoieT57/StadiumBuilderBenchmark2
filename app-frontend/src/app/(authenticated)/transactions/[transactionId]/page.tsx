@@ -13,7 +13,11 @@ export default async function TransactionDetailsPage({
   const { transactionId } = await params;
   return (
     <RouteGuard route="/transactions">
-      <TransactionDetailsView transactionId={transactionId} />
+      {/* Keyed so moving to another transaction starts fresh, never showing the previous one's details. */}
+      <TransactionDetailsView
+        key={transactionId}
+        transactionId={transactionId}
+      />
     </RouteGuard>
   );
 }
