@@ -10,7 +10,8 @@
     ],
     "introducesSharedSurface": false,
     "unverifiedAssumptions": [
-      "Show-filter chip reads \"Showing cancelled\" / \"Showing active and cancelled\" with a \"Remove Show filter\" button. Wording OK?"
+      "Show-filter chip reads \"Showing cancelled\" / \"Showing active and cancelled\" with a \"Remove Show filter\" button. Wording OK?",
+      "The processing stage for invalid rows is labelled \"Waiting for corrections\" on the file details screen. Wording OK?"
     ],
     "manualTestResults": []
   },
@@ -38,20 +39,20 @@
       "completedAt": "2026-10-15T11:43:27.106Z"
     },
     "4": {
-      "status": "in-progress",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
       "startedAt": "2026-10-15T11:43:27.106Z",
-      "completedAt": null
+      "completedAt": "2026-10-15T11:47:30.624Z"
     },
     "5": {
-      "status": "pending",
+      "status": "in-progress",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
+      "startedAt": "2026-10-15T11:47:30.624Z",
       "completedAt": null
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T11:43:27.106Z"
+  "lastUpdated": "2026-10-15T11:47:30.624Z"
 }

@@ -55,6 +55,7 @@ import { activeFileFilters } from '@/lib/files/activeFilters';
 import {
   FILE_PAGE_SIZES,
   hasFileFilters,
+  toFileListSearch,
   toFilesQuery,
   withFileFilters,
   withFilePage,
@@ -64,6 +65,7 @@ import {
   type FileListState,
   type FilePageSize,
 } from '@/lib/files/listQuery';
+import { rememberFileListSearch } from '@/lib/files/listReturn';
 import { formatLastProcessed, formatRowCount } from '@/lib/format/file';
 import type {
   FileListItem,
@@ -401,6 +403,12 @@ export function FilesList({ role, rowActions }: FilesListProps) {
       },
     );
   }, []);
+
+  // Remember the view so the details screen's back link returns to it.
+  const listSearch = useMemo(() => toFileListSearch(view), [view]);
+  useEffect(() => {
+    rememberFileListSearch(listSearch);
+  }, [listSearch]);
 
   useEffect(() => {
     queryRef.current = query;

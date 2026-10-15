@@ -22,3 +22,12 @@
   - A file count filters the list.
   - A transaction count opens the transactions list filtered to that status.
   - The counts load independently, so a problem with them never blocks the file list.
+
+## Story 4: File details
+
+- **What the screen shows.** Opening a file shows:
+  - its summary: total rows, and how many were loaded, skipped or ignored
+  - its transaction counts, each linking to that file's transactions
+  - a "fully reviewed" note when nothing is left to review
+  - the processing history, stage by stage
+- **Back to the list.** "Back to dashboard" and the browser Back button both return to the list exactly as it was left.
