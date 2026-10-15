@@ -8,20 +8,18 @@
  */
 
 import { ApproveTransactionDialog } from '@/components/transactions/ApproveTransactionDialog';
-import { Button } from '@/components/ui/button';
+import { RejectTransactionDialog } from '@/components/transactions/RejectTransactionDialog';
 import type {
   TransactionDetails,
   TransactionListItem,
 } from '@/types/api-generated';
-
-export const REJECT_LABEL = 'Reject';
 
 export function TransactionRowActions({
   item,
   onSettled,
 }: {
   item: TransactionListItem;
-  /** The back-end's answer to a decision (see `ApproveTransactionDialog`). */
+  /** The back-end's answer to a decision (see the Approve / Reject dialogs). */
   onSettled: (details: TransactionDetails | null) => void;
 }) {
   return (
@@ -31,11 +29,11 @@ export function TransactionRowActions({
         reference={item.reference}
         onSettled={onSettled}
       />
-      {/* The reject confirmation (reason form) is wired here by the Reject story. */}
-      <Button type="button" variant="outline" size="sm">
-        {`${REJECT_LABEL} `}
-        <span className="sr-only">{item.reference}</span>
-      </Button>
+      <RejectTransactionDialog
+        transactionId={item.id}
+        reference={item.reference}
+        onSettled={onSettled}
+      />
     </div>
   );
 }

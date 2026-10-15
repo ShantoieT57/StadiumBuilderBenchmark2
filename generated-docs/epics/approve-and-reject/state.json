@@ -19,24 +19,24 @@
       "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": "2026-10-15T15:10:00Z",
+      "startedAt": "2026-10-15T14:11:00Z",
       "completedAt": "2026-10-15T14:19:29.177Z"
     },
     "2": {
-      "status": "in-progress",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
       "startedAt": "2026-10-15T14:19:29.177Z",
-      "completedAt": null
+      "completedAt": "2026-10-15T14:26:40.348Z"
     },
     "3": {
-      "status": "pending",
+      "status": "in-progress",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
+      "startedAt": "2026-10-15T14:26:40.348Z",
       "completedAt": null
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T14:19:29.177Z"
+  "lastUpdated": "2026-10-15T14:26:40.348Z"
 }
