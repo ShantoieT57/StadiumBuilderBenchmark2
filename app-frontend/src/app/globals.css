@@ -64,8 +64,10 @@
   --accent-foreground: oklch(0.205 0 0);
   /* Darkened from shadcn's 0.577 so destructive text meets WCAG AA (~6.4:1 on white) */
   --destructive: oklch(0.505 0.213 27.518);
-  --success: #15803d;
-  --warning: #b45309;
+  /* Status text tokens sit on white / card / muted surfaces: kept at ~7:1 on
+     white (green-800 / amber-800) so 12px labels clear WCAG AA (4.5:1) with margin */
+  --success: #166534;
+  --warning: #92400e;
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);

@@ -57,7 +57,9 @@ export function Toast({ toast, onDismiss }: ToastProps) {
     <div
       className={cn(
         'bg-card text-card-foreground pointer-events-auto flex items-start gap-3 rounded-lg border border-l-4 p-4 shadow-lg',
-        'animate-in fade-in slide-in-from-right duration-300',
+        // Slide only (no opacity fade): the coloured kind label stays at full
+        // contrast for its whole entrance, so it never dips below WCAG AA.
+        'animate-in slide-in-from-right duration-300',
         border,
         toast.onClick && 'cursor-pointer transition-shadow hover:shadow-xl',
       )}

@@ -39,7 +39,12 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-import type { BrowserContext, Locator, Page } from '@playwright/test';
+import type {
+  BrowserContext,
+  FileChooser,
+  Locator,
+  Page,
+} from '@playwright/test';
 import type { UploadedFile, UserRole } from '../src/types/api-generated';
 import { mockSessionValue, SESSION_COOKIE } from './fixtures/mock-backend';
 import { UPLOADED_FILE_NAME } from '../src/mocks/data/uploads';
@@ -102,6 +107,27 @@ async function tabUntilFocused(
     if (focused) return true;
   }
   return false;
+}
+
+/**
+ * Presses Enter on the focused `target` until the browser's file chooser opens.
+ * The server-rendered button is visible and focusable before the page's script
+ * has loaded; an Enter pressed in that window does nothing, so press it again,
+ * as a person would. Focus must stay on `target` throughout.
+ */
+async function openChooserWithEnter(
+  page: Page,
+  target: Locator,
+): Promise<FileChooser> {
+  let chooser: FileChooser | undefined;
+  await expect(async () => {
+    await expect(target).toBeFocused({ timeout: 0 });
+    const opened = page.waitForEvent('filechooser', { timeout: 2_000 });
+    await page.keyboard.press('Enter');
+    chooser = await opened;
+  }).toPass({ timeout: 15_000 });
+  if (!chooser) throw new Error('The file chooser did not open');
+  return chooser;
 }
 
 /** How far the page scrolls sideways (0 = no horizontal scroll). */
@@ -188,9 +214,7 @@ test.describe('Epic file-upload, Story 1: Upload a file with progress and confir
     // Keyboard: Tab to "Choose file", press Enter, pick the file in the chooser.
     const keyboardName = 'keyboard-choice_2026-04-15.csv';
     expect(await tabUntilFocused(page, chooseFile)).toBe(true);
-    const chooserPromise = page.waitForEvent('filechooser');
-    await page.keyboard.press('Enter');
-    const chooser = await chooserPromise;
+    const chooser = await openChooserWithEnter(page, chooseFile);
     expect(chooser.isMultiple()).toBe(false);
     await chooser.setFiles(csvFile(keyboardName));
 
@@ -285,9 +309,7 @@ test.describe('Epic file-upload, Story 1: Upload a file with progress and confir
 
     // Keyboard only: Tab to "Choose file", Enter, pick the file.
     expect(await tabUntilFocused(page, chooseFile)).toBe(true);
-    const chooserPromise = page.waitForEvent('filechooser');
-    await page.keyboard.press('Enter');
-    const chooser = await chooserPromise;
+    const chooser = await openChooserWithEnter(page, chooseFile);
     await chooser.setFiles(csvFile(longName));
 
     await expect(main.getByText(longName)).toBeVisible();
