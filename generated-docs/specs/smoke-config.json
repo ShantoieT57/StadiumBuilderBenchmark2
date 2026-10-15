@@ -1,0 +1,13 @@
+{
+  "attempt": 1,
+  "baseUrl": "http://localhost:5100/api",
+  "method": "GET",
+  "path": "/auth/me",
+  "headers": [],
+  "body": null,
+  "envFile": "app-frontend/.env.local",
+  "timeoutMs": 10000,
+  "reachabilityOnly": true,
+  "writeShellArtifact": "generated-docs/specs/api-smoke-test.sh",
+  "bodyExcerptLimit": 500
+}
