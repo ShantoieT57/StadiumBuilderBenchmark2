@@ -15,6 +15,7 @@
  */
 
 import { UNREACHABLE_STATUSES } from '@/lib/api/errors';
+import { redirectToSignIn } from '@/lib/auth/signIn';
 import { API_BASE_URL } from '@/lib/utils/constants';
 import type {
   APIError,
@@ -319,6 +320,13 @@ async function handleErrorResponse(
 
   if (UNREACHABLE_STATUSES.includes(statusCode)) {
     throw { ...createNetworkError(url), body: parsed.raw };
+  }
+
+  // Central 401 handling (BR4): the session has ended, so leave for sign-in
+  // with the reason. `/auth/*` calls are excluded: a 401 from sign-in means
+  // wrong credentials, and `/auth/me` callers decide for themselves.
+  if (statusCode === 401 && !isAuthEndpoint(url)) {
+    redirectToSignIn(parsed.reason);
   }
 
   const validationMessages = parsed.errors

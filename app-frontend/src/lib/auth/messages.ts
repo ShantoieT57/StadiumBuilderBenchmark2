@@ -29,3 +29,28 @@ export const NO_ACCESS_MESSAGE = `You don't have access to this screen. Ask ${AD
 
 export const EMAIL_REQUIRED_MESSAGE = 'Email is required';
 export const PASSWORD_REQUIRED_MESSAGE = 'Password is required';
+
+/** R8: shown on the sign-in screen after choosing Sign out. */
+export const SIGNED_OUT_MESSAGE = 'You have signed out';
+
+/** Sign-out could not be completed, so the person is still signed in. */
+export const SIGN_OUT_FAILED_TITLE = 'Could not sign you out';
+export const SIGN_OUT_FAILED_MESSAGE =
+  "You're still signed in. Check your connection and try again.";
+
+/** R6 / R7 (BR4): why the person was returned to the sign-in screen. */
+export const SESSION_ENDED_TITLE = 'You were signed out';
+export const SESSION_EXPIRED_MESSAGE =
+  'You were inactive for 60 minutes, so we signed you out. Sign in again to continue.';
+export const SIGNED_IN_ELSEWHERE_MESSAGE =
+  'Your account was signed in on another device or browser, so we signed you out here.';
+
+/**
+ * The persistent problem message for a sign-in `?reason=`, or null for an
+ * ordinary signed-out visit (`NotSignedIn`, `SignedOut`, none).
+ */
+export function sessionEndedMessage(reason: string | null): string | null {
+  if (reason === 'SessionExpired') return SESSION_EXPIRED_MESSAGE;
+  if (reason === 'SignedInElsewhere') return SIGNED_IN_ELSEWHERE_MESSAGE;
+  return null;
+}

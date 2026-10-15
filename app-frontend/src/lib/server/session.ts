@@ -9,6 +9,11 @@
 import { cookies } from 'next/headers';
 import { cache } from 'react';
 
+import {
+  SIGN_IN_PATH,
+  signInPathForReason,
+  toUnauthenticatedReason,
+} from '@/lib/auth/signIn';
 import { backendUrl, SESSION_COOKIE } from '@/lib/server/backend';
 import type { CurrentUser, UnauthenticatedReason } from '@/types/api-generated';
 
@@ -17,16 +22,8 @@ export type SessionCheck =
   | { status: 'signed-out'; reason: UnauthenticatedReason }
   | { status: 'unavailable' };
 
-const REASONS: readonly UnauthenticatedReason[] = [
-  'NotSignedIn',
-  'SessionExpired',
-  'SignedInElsewhere',
-  'SignedOut',
-];
-
 function reasonFrom(body: unknown): UnauthenticatedReason {
-  const reason = (body as { reason?: unknown } | null)?.reason;
-  return REASONS.find((known) => known === reason) ?? 'NotSignedIn';
+  return toUnauthenticatedReason((body as { reason?: unknown } | null)?.reason);
 }
 
 /** Who is signed in for the current request, according to the back-end. */
@@ -75,8 +72,7 @@ export const currentSession = cache(checkSession);
 export function signInPathFor(
   check: Exclude<SessionCheck, { status: 'signed-in' }>,
 ): string {
-  if (check.status === 'signed-out' && check.reason !== 'NotSignedIn') {
-    return `/sign-in?reason=${check.reason}`;
-  }
-  return '/sign-in';
+  return check.status === 'signed-out'
+    ? signInPathForReason(check.reason)
+    : SIGN_IN_PATH;
 }

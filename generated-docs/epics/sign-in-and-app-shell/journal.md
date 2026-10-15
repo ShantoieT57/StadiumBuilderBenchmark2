@@ -23,3 +23,12 @@
   - The close button shows a "Dismiss message" label on hover or keyboard focus.
 - **Sign-in connection message.** The "can't reach the app" message still appears inside the sign-in card rather than as a pop-up, because moving it would have broken the sign-in checks.
 - **Colour tokens.** Added two tokens, success (green) and warning (amber), with light and dark values, so messages no longer use hard-coded colours.
+
+## Story 4: Sign out and being signed out
+
+- **Signing out.** It ends the session everywhere, closes the live connection and takes you to the sign-in page with a "You have signed out" message. If sign-out fails, you stay signed in and are told so.
+- **Session ended by the back-end.** If the back-end says your session has ended, on a request or through the live connection, the app sends you to sign-in with the matching reason:
+  - An idle timeout shows a "60 minutes" inactivity message.
+  - A sign-in elsewhere shows an "another device" message.
+  - An ordinary signed-out visit shows nothing extra.
+- **Live connection.** It reuses the existing /api proxy rather than a separate route. The proxy now marks event streams so they are never buffered or compressed. Checked against the real back-end: the retry line and the heartbeats arrive straight away.

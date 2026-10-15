@@ -84,6 +84,13 @@ async function proxy(request: NextRequest): Promise<Response> {
   for (const cookie of upstream.headers.getSetCookie()) {
     headers.append('set-cookie', cookie);
   }
+  if (headers.get('content-type')?.startsWith('text/event-stream')) {
+    // Live stream (`GET /events`): pass each frame through as it arrives.
+    // `no-transform` keeps the server's response compression off it, and
+    // `X-Accel-Buffering` stops a reverse proxy in front from buffering it.
+    headers.set('cache-control', 'no-cache, no-transform');
+    headers.set('x-accel-buffering', 'no');
+  }
 
   return new Response(upstream.body, {
     status: upstream.status,

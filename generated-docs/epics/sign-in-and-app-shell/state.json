@@ -16,7 +16,9 @@
       "The no-access screen shows the heading 'No access' above the approved message. Is that heading wording acceptable?",
       "Success messages close themselves after 5 seconds. Is that the right length of time?",
       "Warning messages (none are raised yet) are announced immediately but still close after 5 seconds; only Problem messages stay on screen. Is that what you want?",
-      "The sign-in 'can't reach the app' message stays inside the sign-in card (persistent, announced to screen readers) rather than as a pop-up message. Acceptable?"
+      "The sign-in 'can't reach the app' message stays inside the sign-in card (persistent, announced to screen readers) rather than as a pop-up message. Acceptable?",
+      "Wording check: idle timeout says \"You were inactive for 60 minutes, so we signed you out. Sign in again to continue.\"; sign-in elsewhere says \"Your account was signed in on another device or browser, so we signed you out here.\" Acceptable?",
+      "When signed out by signing out on another device, this tab returns to the plain sign-in screen with no explanation. Confirm no \"you signed out elsewhere\" message is wanted."
     ],
     "manualTestResults": []
   },
@@ -44,13 +46,13 @@
       "completedAt": "2026-10-15T07:22:30.777Z"
     },
     "4": {
-      "status": "in-progress",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
       "startedAt": "2026-10-15T07:22:30.778Z",
-      "completedAt": null
+      "completedAt": "2026-10-15T07:30:51.261Z"
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T07:22:30.778Z"
+  "lastUpdated": "2026-10-15T07:30:51.262Z"
 }
