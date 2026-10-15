@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "epic": {
+    "slug": "file-correction-and-cancel",
+    "name": "Correcting and cancelling files",
+    "createdAt": "2026-10-15T12:50:40.545Z",
+    "dependsOn": [
+      "file-dashboard-and-details",
+      "file-upload"
+    ],
+    "introducesSharedSurface": false,
+    "unverifiedAssumptions": [],
+    "manualTestResults": []
+  },
+  "phase": "PLAN",
+  "stories": {},
+  "halt": null,
+  "lastUpdated": "2026-10-15T12:50:40.545Z"
+}
