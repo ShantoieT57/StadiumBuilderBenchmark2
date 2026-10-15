@@ -43,6 +43,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 
 import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
+import { CancelFileDialog } from '@/components/files/CancelFileDialog';
 import {
   FileCancelledBadge,
   FileStatusBadge,
@@ -224,7 +225,13 @@ function BackToDetails({ fileId }: { fileId: string }) {
   );
 }
 
-function CorrectionsHeader({ file }: { file: FileDetails }) {
+function CorrectionsHeader({
+  file,
+  onCancelled,
+}: {
+  file: FileDetails;
+  onCancelled: (details: FileDetails) => void;
+}) {
   return (
     <header className="flex min-w-0 flex-wrap items-start justify-between gap-3">
       <div className="flex min-w-0 flex-col gap-2">
@@ -235,7 +242,11 @@ function CorrectionsHeader({ file }: { file: FileDetails }) {
         </div>
       </div>
       {/* Header actions area: the importer's file actions on this screen. */}
-      <div className="flex flex-wrap gap-2" data-slot="file-actions" />
+      <div className="flex flex-wrap gap-2" data-slot="file-actions">
+        {!file.isCancelled && (
+          <CancelFileDialog file={file} onCancelled={onCancelled} />
+        )}
+      </div>
     </header>
   );
 }
@@ -786,11 +797,18 @@ export function CorrectionsView({ fileId }: { fileId: string }) {
     [fileId],
   );
 
+  // Cancelled from this screen: go to the file's details.
+  const router = useRouter();
+  const goToDetails = useCallback(() => {
+    requestRef.current += 1;
+    router.push(fileDetailsHref(fileId));
+  }, [router, fileId]);
+
   let content: ReactNode;
   if (view.kind === 'waiting') {
     content = (
       <>
-        <CorrectionsHeader file={view.file} />
+        <CorrectionsHeader file={view.file} onCancelled={goToDetails} />
         {view.refreshFailed && (
           <RefreshFailedNotice
             onRetry={() => {
@@ -811,7 +829,7 @@ export function CorrectionsView({ fileId }: { fileId: string }) {
   } else if (view.kind === 'notWaiting') {
     content = (
       <>
-        <CorrectionsHeader file={view.file} />
+        <CorrectionsHeader file={view.file} onCancelled={goToDetails} />
         <NotWaitingNotice file={view.file} message={view.message} />
       </>
     );

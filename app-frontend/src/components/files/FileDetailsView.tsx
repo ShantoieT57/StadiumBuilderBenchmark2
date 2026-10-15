@@ -5,7 +5,7 @@
  *
  * - Header: file name, status in words, who uploaded it and when, last processed,
  *   and an actions area: "Correct invalid rows" for an Importer on a file waiting
- *   for corrections.
+ *   for corrections, and "Cancel file" for an Importer on any file not cancelled.
  * - Row summary: total / loaded / skipped / ignored, shown exactly as returned (BR5).
  * - Transaction counts link to the Transactions list for this file and status.
  * - "This file is fully reviewed" follows `isFullyReviewed` only, never the counts (BR6).
@@ -36,6 +36,7 @@ import {
 } from 'react';
 
 import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
+import { CancelFileDialog } from '@/components/files/CancelFileDialog';
 import { correctionsHref } from '@/components/files/FilesList';
 import {
   FileCancelledBadge,
@@ -195,8 +196,19 @@ export function isWaitingForCorrections(file: FileDetails): boolean {
   );
 }
 
-function FileHeader({ file, role }: { file: FileDetails; role: UserRole }) {
+function FileHeader({
+  file,
+  role,
+  onCancelled,
+  onRefused,
+}: {
+  file: FileDetails;
+  role: UserRole;
+  onCancelled: (details: FileDetails) => void;
+  onRefused: () => void;
+}) {
   const canCorrect = role === 'Importer' && isWaitingForCorrections(file);
+  const canCancel = role === 'Importer' && !file.isCancelled;
   return (
     <header className="flex min-w-0 flex-col gap-3">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -216,6 +228,13 @@ function FileHeader({ file, role }: { file: FileDetails; role: UserRole }) {
                 Correct invalid rows
               </Link>
             </Button>
+          )}
+          {canCancel && (
+            <CancelFileDialog
+              file={file}
+              onCancelled={onCancelled}
+              onRefused={onRefused}
+            />
           )}
         </div>
       </div>
@@ -407,13 +426,22 @@ function DownloadOriginal({ file }: { file: FileDetails }) {
 function FileDetailsContent({
   file,
   role,
+  onCancelled,
+  onRefused,
 }: {
   file: FileDetails;
   role: UserRole;
+  onCancelled: (details: FileDetails) => void;
+  onRefused: () => void;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <FileHeader file={file} role={role} />
+      <FileHeader
+        file={file}
+        role={role}
+        onCancelled={onCancelled}
+        onRefused={onRefused}
+      />
       {file.status === 'Failed' && (
         <FailureReason reason={file.failureReason} />
       )}
@@ -495,6 +523,19 @@ export function FileDetailsView({
     void load();
   };
 
+  // A cancel answered with the file's details: show them at once (no reload),
+  // ignoring any load still in flight.
+  const showCancelled = (details: FileDetails) => {
+    requestRef.current += 1;
+    setLoaded({ fileId, file: details });
+    setFailure(null);
+  };
+
+  // A refused cancel: bring the file up to date in place.
+  const refreshAfterRefusal = () => {
+    void load();
+  };
+
   let content: ReactNode;
   if (failure !== null && statusOf(failure) === 404) {
     content = (
@@ -543,7 +584,12 @@ export function FileDetailsView({
     content = (
       <>
         {failure !== null && <RefreshFailedNotice onRetry={retry} />}
-        <FileDetailsContent file={file} role={role} />
+        <FileDetailsContent
+          file={file}
+          role={role}
+          onCancelled={showCancelled}
+          onRefused={refreshAfterRefusal}
+        />
       </>
     );
   }

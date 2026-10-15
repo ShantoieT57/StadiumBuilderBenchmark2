@@ -13,3 +13,9 @@
 - **Dashboard shortcut.** The Dashboard shows a "Correct" shortcut to Importers, only on files waiting for corrections.
 - **Not waiting any more.** If the file stops waiting, the correction screen shows a plain notice with its status and a link to its details.
 - **Live updates.** They refresh the rows without wiping edits that haven't been sent yet.
+
+## Story 3: Cancel a file
+
+- **Where to cancel.** Importers can cancel a file from its details page or from the correction screen.
+- **Confirmation.** It names the file and has "Keep file" as the default.
+- **After cancelling.** The details show who cancelled the file and when, straight away.
