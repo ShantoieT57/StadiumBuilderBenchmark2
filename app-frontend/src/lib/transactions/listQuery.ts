@@ -1,0 +1,188 @@
+/**
+ * The transactions list's view state, carried in the URL search params (BR2).
+ *
+ * Param names and values are the API's own (`sortBy=Amount&sortDirection=Desc`),
+ * so a list URL maps one-to-one onto `GET /transactions`. Defaults
+ * (TransactionDate, newest first, page 1, 20 per page) are left out of the URL.
+ */
+import type {
+  ListTransactionsQuery,
+  SortDirection,
+  TransactionSortColumn,
+  TransactionStatus,
+} from '@/types/api-generated';
+
+export const TRANSACTION_PAGE_SIZES = [5, 10, 20, 50] as const;
+export type TransactionPageSize = (typeof TRANSACTION_PAGE_SIZES)[number];
+
+export const DEFAULT_SORT_COLUMN: TransactionSortColumn = 'TransactionDate';
+export const DEFAULT_PAGE_SIZE: TransactionPageSize = 20;
+
+const SORT_COLUMNS: readonly TransactionSortColumn[] = [
+  'TransactionDate',
+  'Reference',
+  'AccountNumber',
+  'Description',
+  'Amount',
+  'Currency',
+  'TransactionType',
+  'Status',
+  'FileName',
+];
+
+const STATUSES: readonly TransactionStatus[] = [
+  'Imported',
+  'Approved',
+  'Rejected',
+];
+
+/** The filters a list URL can carry (set by the filter form, or by links into the list). */
+export interface TransactionListFilters {
+  status?: TransactionStatus;
+  fileId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  minAmount?: number;
+  maxAmount?: number;
+  search?: string;
+}
+
+export interface TransactionListState {
+  sortBy: TransactionSortColumn;
+  sortDirection: SortDirection;
+  page: number;
+  pageSize: TransactionPageSize;
+  filters: TransactionListFilters;
+}
+
+/** Newest first for the date; A-Z / smallest first for every other column. */
+export function defaultDirectionFor(
+  column: TransactionSortColumn,
+): SortDirection {
+  return column === DEFAULT_SORT_COLUMN ? 'Desc' : 'Asc';
+}
+
+/** Read-only view of URL search params (`URLSearchParams` or Next's `ReadonlyURLSearchParams`). */
+export interface SearchParamsReader {
+  get(name: string): string | null;
+}
+
+function text(params: SearchParamsReader, name: string): string | undefined {
+  const value = params.get(name)?.trim();
+  return value ? value : undefined;
+}
+
+function amount(params: SearchParamsReader, name: string): number | undefined {
+  const value = text(params, name);
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function pick<T extends string>(
+  value: string | undefined,
+  allowed: readonly T[],
+): T | undefined {
+  return allowed.find((option) => option === value);
+}
+
+/** Parses the list state from the URL; unknown or invalid values fall back to the defaults. */
+export function parseListState(
+  params: SearchParamsReader,
+): TransactionListState {
+  const sortBy =
+    pick(text(params, 'sortBy'), SORT_COLUMNS) ?? DEFAULT_SORT_COLUMN;
+  const sortDirection =
+    pick<SortDirection>(text(params, 'sortDirection'), ['Asc', 'Desc']) ??
+    defaultDirectionFor(sortBy);
+  const pageNumber = Number(text(params, 'page') ?? 1);
+  const page = Number.isInteger(pageNumber) && pageNumber >= 1 ? pageNumber : 1;
+  const pageSize =
+    TRANSACTION_PAGE_SIZES.find(
+      (size) => size === Number(text(params, 'pageSize')),
+    ) ?? DEFAULT_PAGE_SIZE;
+
+  const filters: TransactionListFilters = {
+    status: pick(text(params, 'status'), STATUSES),
+    fileId: text(params, 'fileId'),
+    dateFrom: text(params, 'dateFrom'),
+    dateTo: text(params, 'dateTo'),
+    minAmount: amount(params, 'minAmount'),
+    maxAmount: amount(params, 'maxAmount'),
+    search: text(params, 'search'),
+  };
+
+  return { sortBy, sortDirection, page, pageSize, filters };
+}
+
+/** The `GET /transactions` query for a list state (every value explicit). */
+export function toTransactionsQuery(
+  state: TransactionListState,
+): ListTransactionsQuery {
+  const query: ListTransactionsQuery = {
+    sortBy: state.sortBy,
+    sortDirection: state.sortDirection,
+    page: state.page,
+    pageSize: state.pageSize,
+  };
+  for (const [key, value] of Object.entries(state.filters)) {
+    if (value !== undefined && value !== '') {
+      Object.assign(query, { [key]: value });
+    }
+  }
+  return query;
+}
+
+/** The URL search string (no leading `?`) for a list state, with defaults omitted. */
+export function toListSearch(state: TransactionListState): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(state.filters)) {
+    if (value !== undefined && value !== '') params.set(key, String(value));
+  }
+  if (state.sortBy !== DEFAULT_SORT_COLUMN) params.set('sortBy', state.sortBy);
+  if (state.sortDirection !== defaultDirectionFor(state.sortBy)) {
+    params.set('sortDirection', state.sortDirection);
+  }
+  if (state.page !== 1) params.set('page', String(state.page));
+  if (state.pageSize !== DEFAULT_PAGE_SIZE) {
+    params.set('pageSize', String(state.pageSize));
+  }
+  return params.toString();
+}
+
+/** Sorting by `column`: toggles the current column, else that column's default direction. Keeps page and filters. */
+export function withSort(
+  state: TransactionListState,
+  column: TransactionSortColumn,
+): TransactionListState {
+  const sortDirection: SortDirection =
+    state.sortBy === column
+      ? state.sortDirection === 'Asc'
+        ? 'Desc'
+        : 'Asc'
+      : defaultDirectionFor(column);
+  return { ...state, sortBy: column, sortDirection };
+}
+
+export function withPage(
+  state: TransactionListState,
+  page: number,
+): TransactionListState {
+  return { ...state, page: Math.max(1, page) };
+}
+
+/** A new page size always returns to page 1 (BR3). */
+export function withPageSize(
+  state: TransactionListState,
+  pageSize: TransactionPageSize,
+): TransactionListState {
+  return { ...state, pageSize, page: 1 };
+}
+
+/** New filters always return to page 1 and keep the sort (BR3). */
+export function withFilters(
+  state: TransactionListState,
+  filters: TransactionListFilters,
+): TransactionListState {
+  return { ...state, filters, page: 1 };
+}

@@ -1,0 +1,452 @@
+'use client';
+
+/**
+ * The transactions list (TL-01..03, TL-08, GN-01).
+ *
+ * - The view (sort, page, page size, filters) lives in the URL search params, so
+ *   reload, Back and links restore it (BR2). Changing it pushes a new URL.
+ * - Desktop (md and up) shows a table; narrow screens show compact rows with the
+ *   key details and an actions area holding the details link (later epics add
+ *   Approve / Reject there).
+ * - Refetches in place on the shell's `transactions-changed` and `resync` events,
+ *   keeping the current view (NFR-5: no connection of its own).
+ * - Account numbers and descriptions are never logged (BR8): failures are shown
+ *   without the error body and nothing is written to the console.
+ */
+
+import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+
+import { TransactionStatusBadge } from '@/components/transactions/TransactionStatusBadge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { useEvents } from '@/contexts/EventsContext';
+import { getTransactions } from '@/lib/api/endpoints';
+import { isNetworkError, isRedirectingToSignIn } from '@/lib/api/errors';
+import {
+  formatAmount,
+  formatTransactionDate,
+  formatTransactionType,
+} from '@/lib/format/transaction';
+import {
+  TRANSACTION_PAGE_SIZES,
+  parseListState,
+  toListSearch,
+  toTransactionsQuery,
+  withPage,
+  withPageSize,
+  withSort,
+  type TransactionListState,
+  type TransactionPageSize,
+} from '@/lib/transactions/listQuery';
+import type {
+  ListTransactionsQuery,
+  TransactionListItem,
+  TransactionPage,
+  TransactionSortColumn,
+} from '@/types/api-generated';
+
+export const LOADING_TRANSACTIONS_MESSAGE = 'Loading transactions';
+export const NO_TRANSACTIONS_MESSAGE = 'No transactions yet';
+export const LOAD_FAILED_TITLE = 'Transactions could not be loaded';
+const LOAD_FAILED_MESSAGE = 'Something went wrong. Please try again.';
+const UNREACHABLE_MESSAGE =
+  "We can't reach the app right now. Check your connection and try again.";
+
+interface Column {
+  sortBy: TransactionSortColumn;
+  label: string;
+  className?: string;
+}
+
+const COLUMNS: readonly Column[] = [
+  { sortBy: 'Reference', label: 'Reference' },
+  { sortBy: 'TransactionDate', label: 'Date' },
+  { sortBy: 'AccountNumber', label: 'Account' },
+  { sortBy: 'Description', label: 'Description' },
+  { sortBy: 'Amount', label: 'Amount', className: 'text-right' },
+  { sortBy: 'TransactionType', label: 'Type' },
+  { sortBy: 'Status', label: 'Status' },
+  { sortBy: 'FileName', label: 'File' },
+];
+
+/** The details route for a transaction, carrying the list's view so it can return to it. */
+export function transactionDetailsHref(id: string, listSearch: string): string {
+  const path = `/transactions/${encodeURIComponent(id)}`;
+  return listSearch ? `${path}?${listSearch}` : path;
+}
+
+function SortIcon({
+  active,
+  ascending,
+}: {
+  active: boolean;
+  ascending: boolean;
+}) {
+  if (!active)
+    return (
+      <ArrowUpDownIcon aria-hidden="true" className="size-3.5 opacity-50" />
+    );
+  return ascending ? (
+    <ArrowUpIcon aria-hidden="true" className="size-3.5" />
+  ) : (
+    <ArrowDownIcon aria-hidden="true" className="size-3.5" />
+  );
+}
+
+function TransactionsTable({
+  items,
+  view,
+  listSearch,
+  onSort,
+}: {
+  items: TransactionListItem[];
+  view: TransactionListState;
+  listSearch: string;
+  onSort: (column: TransactionSortColumn) => void;
+}) {
+  return (
+    <div className="hidden md:block">
+      <Table>
+        <TableCaption className="sr-only">Transactions</TableCaption>
+        <TableHeader>
+          <TableRow>
+            {COLUMNS.map((column) => {
+              const active = view.sortBy === column.sortBy;
+              const ascending = view.sortDirection === 'Asc';
+              return (
+                <TableHead
+                  key={column.sortBy}
+                  className={column.className}
+                  aria-sort={
+                    active
+                      ? ascending
+                        ? 'ascending'
+                        : 'descending'
+                      : undefined
+                  }
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="-ml-2 h-8 px-2"
+                    onClick={() => onSort(column.sortBy)}
+                  >
+                    {column.label}
+                    <SortIcon active={active} ascending={ascending} />
+                  </Button>
+                </TableHead>
+              );
+            })}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => (
+            <TableRow key={item.id}>
+              <TableCell className="font-medium">
+                <Link
+                  href={transactionDetailsHref(item.id, listSearch)}
+                  className="text-primary underline-offset-4 hover:underline focus-visible:ring-ring/50 rounded-sm outline-none focus-visible:ring-[3px]"
+                >
+                  {item.reference}
+                </Link>
+              </TableCell>
+              <TableCell>
+                {formatTransactionDate(item.transactionDate)}
+              </TableCell>
+              <TableCell>{item.accountNumber}</TableCell>
+              <TableCell className="max-w-64 whitespace-normal break-words">
+                {item.description}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatAmount(item.amount, item.currency)}
+              </TableCell>
+              <TableCell>
+                {formatTransactionType(item.transactionType)}
+              </TableCell>
+              <TableCell>
+                <TransactionStatusBadge status={item.status} />
+              </TableCell>
+              <TableCell>{item.file.fileName}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function TransactionsCompactList({
+  items,
+  listSearch,
+}: {
+  items: TransactionListItem[];
+  listSearch: string;
+}) {
+  return (
+    <ul aria-label="Transactions" className="flex flex-col gap-2 md:hidden">
+      {items.map((item) => (
+        <li
+          key={item.id}
+          className="bg-card flex min-w-0 flex-col gap-2 rounded-lg border p-3 text-sm"
+        >
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <span className="font-medium break-all">{item.reference}</span>
+            <TransactionStatusBadge status={item.status} />
+          </div>
+          <div className="text-muted-foreground">
+            {formatTransactionDate(item.transactionDate)}
+          </div>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="tabular-nums font-medium">
+              {formatAmount(item.amount, item.currency)}
+            </span>
+            <span>{formatTransactionType(item.transactionType)}</span>
+          </div>
+          {/* Row actions: the details link; later epics add Approve / Reject here. */}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={transactionDetailsHref(item.id, listSearch)}>
+                Details<span className="sr-only"> for {item.reference}</span>
+              </Link>
+            </Button>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Paging({
+  result,
+  view,
+  onPage,
+  onPageSize,
+}: {
+  result: TransactionPage;
+  view: TransactionListState;
+  onPage: (page: number) => void;
+  onPageSize: (pageSize: TransactionPageSize) => void;
+}) {
+  const pageSizeId = useId();
+  const totalPages = Math.max(result.totalPages, 1);
+  const page = Math.min(result.page, totalPages);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+      <div className="flex items-center gap-2">
+        <Label htmlFor={pageSizeId}>Rows per page</Label>
+        <Select
+          value={String(view.pageSize)}
+          onValueChange={(value) => {
+            const size = TRANSACTION_PAGE_SIZES.find(
+              (option) => String(option) === value,
+            );
+            if (size) onPageSize(size);
+          }}
+        >
+          <SelectTrigger id={pageSizeId} size="sm" className="w-20">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TRANSACTION_PAGE_SIZES.map((size) => (
+              <SelectItem key={size} value={String(size)}>
+                {size}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <p className="text-muted-foreground" aria-live="polite">
+        Page {page} of {totalPages} ({result.totalCount}{' '}
+        {result.totalCount === 1 ? 'transaction' : 'transactions'})
+      </p>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={page <= 1}
+          onClick={() => onPage(page - 1)}
+        >
+          Previous page
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={page >= totalPages}
+          onClick={() => onPage(page + 1)}
+        >
+          Next page
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function TransactionsList() {
+  const router = useRouter();
+  const pathname = usePathname() ?? '/transactions';
+  const searchParams = useSearchParams();
+  const urlSearch = searchParams?.toString() ?? '';
+  const { subscribe } = useEvents();
+
+  const view = useMemo(
+    () => parseListState(new URLSearchParams(urlSearch)),
+    [urlSearch],
+  );
+  const listSearch = useMemo(() => toListSearch(view), [view]);
+  const query = useMemo(() => toTransactionsQuery(view), [view]);
+
+  const [result, setResult] = useState<TransactionPage | null>(null);
+  const [failure, setFailure] = useState<unknown>(null);
+  const queryRef = useRef<ListTransactionsQuery>(query);
+  const requestRef = useRef(0);
+
+  // State is only ever set from the promise callbacks (after the response
+  // arrives), never synchronously while an effect is running.
+  const load = useCallback((params: ListTransactionsQuery): Promise<void> => {
+    const request = ++requestRef.current;
+    return getTransactions(params).then(
+      (page) => {
+        if (request !== requestRef.current) return;
+        setResult(page);
+        setFailure(null);
+      },
+      (error: unknown) => {
+        if (request !== requestRef.current) return;
+        if (isRedirectingToSignIn(error)) return;
+        setFailure(error ?? new Error('Load failed'));
+      },
+    );
+  }, []);
+
+  useEffect(() => {
+    queryRef.current = query;
+    void load(query);
+  }, [query, load]);
+
+  // Ignore answers that arrive after the list has gone.
+  useEffect(
+    () => () => {
+      requestRef.current += 1;
+    },
+    [],
+  );
+
+  // Live refresh: refetch in place with the current view.
+  useEffect(() => {
+    const refresh = () => {
+      void load(queryRef.current);
+    };
+    const unsubscribers = [
+      subscribe('transactions-changed', refresh),
+      subscribe('resync', refresh),
+    ];
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [subscribe, load]);
+
+  const navigate = useCallback(
+    (next: TransactionListState) => {
+      const search = toListSearch(next);
+      router.push(search ? `${pathname}?${search}` : pathname, {
+        scroll: false,
+      });
+    },
+    [router, pathname],
+  );
+
+  const retry = () => {
+    setFailure(null);
+    void load(queryRef.current);
+  };
+
+  let content: ReactNode;
+  if (failure !== null) {
+    content = (
+      <Alert variant="destructive">
+        <AlertTitle>{LOAD_FAILED_TITLE}</AlertTitle>
+        <AlertDescription>
+          <p>
+            {isNetworkError(failure)
+              ? UNREACHABLE_MESSAGE
+              : LOAD_FAILED_MESSAGE}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={retry}
+          >
+            Retry
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  } else if (result === null) {
+    content = (
+      <p role="status" className="text-muted-foreground">
+        {LOADING_TRANSACTIONS_MESSAGE}…
+      </p>
+    );
+  } else if (!result.hasAnyTransactions) {
+    content = (
+      <p className="text-muted-foreground">{NO_TRANSACTIONS_MESSAGE}</p>
+    );
+  } else if (result.items.length === 0) {
+    content = (
+      <p className="text-muted-foreground">
+        No transactions match the current view.
+      </p>
+    );
+  } else {
+    content = (
+      <>
+        <TransactionsTable
+          items={result.items}
+          view={view}
+          listSearch={listSearch}
+          onSort={(column) => navigate(withSort(view, column))}
+        />
+        <TransactionsCompactList items={result.items} listSearch={listSearch} />
+        <Paging
+          result={result}
+          view={view}
+          onPage={(page) => navigate(withPage(view, page))}
+          onPageSize={(size) => navigate(withPageSize(view, size))}
+        />
+      </>
+    );
+  }
+
+  return <div className="flex min-w-0 flex-col gap-4">{content}</div>;
+}

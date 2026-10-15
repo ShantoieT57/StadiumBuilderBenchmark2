@@ -1,14 +1,21 @@
-import { RouteGuard } from '@/components/shell/RouteGuard';
+import { Suspense } from 'react';
 
-/** Placeholder: the Approver's landing page. Replaced by the transactions epic. */
+import { RouteGuard } from '@/components/shell/RouteGuard';
+import { TransactionsList } from '@/components/transactions/TransactionsList';
+
+/** Transactions: every transaction, sortable and paged, for both roles (TL-01..03). */
 export default function TransactionsPage() {
   return (
     <RouteGuard route="/transactions">
-      <div className="flex flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-4">
         <h1 className="text-2xl font-semibold">Transactions</h1>
-        <p className="text-muted-foreground">
-          Reviewing and approving transactions is coming soon.
-        </p>
+        <Suspense
+          fallback={
+            <p className="text-muted-foreground">Loading transactions…</p>
+          }
+        >
+          <TransactionsList />
+        </Suspense>
       </div>
     </RouteGuard>
   );

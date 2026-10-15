@@ -8,23 +8,26 @@
       "sign-in-and-app-shell"
     ],
     "introducesSharedSurface": false,
-    "unverifiedAssumptions": [],
+    "unverifiedAssumptions": [
+      "Status colours: Imported amber (waiting for a decision), Approved green, Rejected red — always with the word. Is amber right for Imported?",
+      "On a phone each transaction card shows reference, status, date, amount and Credit/Debit with a Details button; account, description and file name appear only on desktop and the details page. Right set for phones?"
+    ],
     "manualTestResults": []
   },
   "phase": "BUILD",
   "stories": {
     "1": {
-      "status": "pending",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
-      "completedAt": null
+      "startedAt": "2026-10-15T09:00:56.863Z",
+      "completedAt": "2026-10-15T09:07:14.165Z"
     },
     "2": {
-      "status": "pending",
+      "status": "in-progress",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
+      "startedAt": "2026-10-15T09:07:14.165Z",
       "completedAt": null
     },
     "3": {
@@ -36,5 +39,5 @@
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T08:52:23.744Z"
+  "lastUpdated": "2026-10-15T09:07:14.165Z"
 }
