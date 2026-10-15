@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "epic": {
+    "slug": "file-dashboard-and-details",
+    "name": "File dashboard and file details",
+    "createdAt": "2026-10-15T11:12:24.364Z",
+    "dependsOn": [
+      "sign-in-and-app-shell",
+      "transactions-list"
+    ],
+    "introducesSharedSurface": false,
+    "unverifiedAssumptions": [],
+    "manualTestResults": []
+  },
+  "phase": "PLAN",
+  "stories": {},
+  "halt": null,
+  "lastUpdated": "2026-10-15T11:12:24.364Z"
+}
