@@ -8,11 +8,17 @@
       "transactions-list"
     ],
     "introducesSharedSurface": false,
-    "unverifiedAssumptions": [],
+    "unverifiedAssumptions": [
+      "Verify the waiting count keeps up with other people: the app assumes the back-end sends its live 'transactions changed' notice to every signed-in Approver when someone approves or rejects. If it doesn't, your menu count stays stale until you make a decision yourself or reload the page."
+    ],
     "manualTestResults": []
   },
-  "phase": "PLAN",
-  "stories": {},
+  "phase": "BUILD",
+  "stories": {
+    "1": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
+    "2": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
+    "3": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null }
+  },
   "halt": null,
   "lastUpdated": "2026-10-15T13:56:06.831Z"
 }
