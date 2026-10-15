@@ -3,13 +3,16 @@ import { Suspense } from 'react';
 import { RouteGuard } from '@/components/shell/RouteGuard';
 import { TransactionFilters } from '@/components/transactions/TransactionFilters';
 import { TransactionsList } from '@/components/transactions/TransactionsList';
+import { requireSession } from '@/lib/auth/requireSession';
 
 /**
  * Transactions: every transaction, filtered, sortable and paged, for both roles
  * (TL-01..03, R6-R9). The filters sit beside the list on wide screens, above it
- * on tablets, and in a slide-out panel on phones.
+ * on tablets, and in a slide-out panel on phones. An Approver also approves and
+ * rejects Imported transactions from the list.
  */
-export default function TransactionsPage() {
+export default async function TransactionsPage() {
+  const user = await requireSession();
   return (
     <RouteGuard route="/transactions">
       <div className="flex min-w-0 flex-col gap-4">
@@ -24,7 +27,7 @@ export default function TransactionsPage() {
               <TransactionFilters />
             </div>
             <div className="min-w-0 flex-1">
-              <TransactionsList />
+              <TransactionsList role={user.role} />
             </div>
           </div>
         </Suspense>

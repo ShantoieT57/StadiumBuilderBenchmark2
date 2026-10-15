@@ -163,6 +163,43 @@
  *   Answers made through `respondFor` inside a spec worker keep their runs in that worker.
  *   Live `file-changed` events are NOT emitted (specs stub `/api/events`).
  *
+ * Approve / reject / waiting count (epic approve-and-reject). Wording, the 409 body,
+ * the reason rule and the decided records come from src/mocks/data/transactions.ts;
+ * the count body from src/mocks/data/importedCount.ts. All need an ACTIVE session
+ * (else 401) and the Approver role (Importer -> 403 `forbiddenBody()`).
+ *   - POST transactions/{id}/approve   no body. Non-UUID id -> 400 keyed `transactionId`;
+ *                                   unknown id (or its file cancelled in this run) -> 404
+ *                                   TRANSACTION_NOT_FOUND_MESSAGE; not Imported -> 409
+ *                                   `transactionConflictBody(current)` = { message:
+ *                                   "This transaction has already been approved." | "...
+ *                                   rejected.", transaction: current details }; else 200 the
+ *                                   details with status Approved, lastChangedBy = the signed-in
+ *                                   user's name (`userInfoFor('Approver').name` = "Approver
+ *                                   User"), lastChangedAt = now (ISO, UTC), rejectionReason null.
+ *   - POST transactions/{id}/reject    JSON body `{ reason }`, checked BEFORE the transaction
+ *                                   (so an invalid reason is 400 whatever its status):
+ *                                   empty body -> 400 keyed `$`; unreadable / non-object JSON
+ *                                   -> 400 `$`; non-string reason -> 400 keyed `reason` AND `$`;
+ *                                   missing / null / empty / whitespace-only reason -> 400
+ *                                   errors.reason [REJECTION_REASON_REQUIRED_MESSAGE]; longer than
+ *                                   500 UTF-16 code units (`.length`) once trimmed -> 400
+ *                                   errors.reason [REJECTION_REASON_TOO_LONG_MESSAGE]. Then as
+ *                                   approve, but 200 is Rejected with the TRIMMED reason stored.
+ *   - GET transactions/imported-count  200 `{ count }` = Imported transactions over the
+ *                                   dataset + this run's changes (seeded / many: 15, empty: 0;
+ *                                   drops by one per decision in the run; loaded rows of a passing
+ *                                   re-check add to it; a cancelled file's rows leave it).
+ *                                   Override: a `mock-imported-count=<n>` cookie
+ *                                   (MOCK_IMPORTED_COUNT_COOKIE, n a non-negative integer) makes it
+ *                                   answer exactly `{ count: n }` - fixed, it does NOT move with
+ *                                   decisions - so specs can show "99+" (e.g. 120) or 0.
+ *   Decisions are kept per `mock-run` (as above): GET transactions (list, status filter),
+ *   transactions/{id}, files / files/{id} (transactions counts, isFullyReviewed),
+ *   dashboard/summary and imported-count all see them, and POST files/{id}/cancel answers
+ *   409 `cannotCancelMessage(n)` counting the run's approvals. Without the cookie a decision
+ *   is answered correctly but not kept. No `transactions-changed` / `resync` events are
+ *   emitted (specs stub `/api/events`).
+ *
  * Every other request -> 401 `unauthenticatedBody('NotSignedIn')`.
  *
  * Bodies come from the project-wide mock-data sources (never inlined here).
@@ -218,11 +255,19 @@ import {
   seededFileRows,
   type MockFileRow,
 } from '../../src/mocks/data/invalidRows';
+import { importedCountOf } from '../../src/mocks/data/importedCount';
 import {
+  REJECTION_REASON_FIELD,
+  REJECTION_REASON_NOT_A_STRING_MESSAGE,
+  TRANSACTION_NOT_FOUND_MESSAGE,
+  approvedDetailsOf,
+  checkRejectionReason,
   createTransactionDetails,
   pageOf,
+  rejectedDetailsOf,
   seedTransactionDetails,
   toListItem,
+  transactionConflictBody,
 } from '../../src/mocks/data/transactions';
 import {
   FILE_REQUIRED_MESSAGE,
@@ -419,12 +464,19 @@ interface RunState {
   rows: Map<string, MockFileRow[]>;
   /** Transactions loaded by a re-check. */
   transactions: TransactionDetails[];
+  /** Transactions approved / rejected in this run (their decided details) by lower-case id. */
+  decisions: Map<string, TransactionDetails>;
 }
 
 const runs = new Map<string, RunState>();
 
 function newRunState(): RunState {
-  return { files: new Map(), rows: new Map(), transactions: [] };
+  return {
+    files: new Map(),
+    rows: new Map(),
+    transactions: [],
+    decisions: new Map(),
+  };
 }
 
 /** The `mock-run` cookie value of a `Cookie` header, or null. */
@@ -466,9 +518,41 @@ export function resetMockRun(run: string): number {
   return dropped;
 }
 
-/** The dataset's files with this run's changes applied. */
+/**
+ * `file` with this run's approve / reject decisions moved out of its Imported count
+ * (a cancelled file keeps its zero counts: its transactions are gone).
+ */
+function withDecisions(file: FileDetails, state: RunState): FileDetails {
+  if (file.isCancelled || state.decisions.size === 0) return file;
+  const key = file.id.toLowerCase();
+  let approved = 0;
+  let rejected = 0;
+  for (const t of state.decisions.values()) {
+    if (t.file.id.toLowerCase() !== key) continue;
+    if (t.status === 'Approved') approved += 1;
+    else rejected += 1;
+  }
+  if (approved + rejected === 0) return file;
+  const imported = Math.max(
+    0,
+    file.transactions.imported - approved - rejected,
+  );
+  return {
+    ...file,
+    transactions: {
+      imported,
+      approved: file.transactions.approved + approved,
+      rejected: file.transactions.rejected + rejected,
+    },
+    isFullyReviewed: file.status === 'Completed' && imported === 0,
+  };
+}
+
+/** The dataset's files with this run's changes (incl. decisions) applied. */
 function currentFiles(dataset: MockDataset, state: RunState): FileDetails[] {
-  return filesFor(dataset).map((f) => state.files.get(f.id.toLowerCase()) ?? f);
+  return filesFor(dataset).map((f) =>
+    withDecisions(state.files.get(f.id.toLowerCase()) ?? f, state),
+  );
 }
 
 /** The dataset's transactions plus this run's loaded ones, without those of cancelled files. */
@@ -481,9 +565,9 @@ function currentTransactions(
       .filter((f) => f.isCancelled)
       .map((f) => f.id.toLowerCase()),
   );
-  return [...transactionsFor(dataset), ...state.transactions].filter(
-    (t) => !cancelled.has(t.file.id.toLowerCase()),
-  );
+  return [...transactionsFor(dataset), ...state.transactions]
+    .filter((t) => !cancelled.has(t.file.id.toLowerCase()))
+    .map((t) => state.decisions.get(t.id.toLowerCase()) ?? t);
 }
 
 // ---------------------------------------------------------------------------
@@ -704,8 +788,85 @@ function transactionDetails(
   const found = all.find((t) => t.id.toLowerCase() === id.toLowerCase());
   return found
     ? json(200, found)
-    : json(404, { message: 'Transaction not found' });
+    : json(404, { message: TRANSACTION_NOT_FOUND_MESSAGE });
 }
+
+// ---------------------------------------------------------------------------
+// Approve / reject / imported-count (epic approve-and-reject)
+// ---------------------------------------------------------------------------
+
+/** Cookie that overrides GET transactions/imported-count's answer (see header). */
+export const MOCK_IMPORTED_COUNT_COOKIE = 'mock-imported-count';
+
+/** The `mock-imported-count` override (a non-negative integer), or null. */
+function importedCountOverride(
+  cookieHeader: string | null | undefined,
+): number | null {
+  const raw = cookieValue(cookieHeader, MOCK_IMPORTED_COUNT_COOKIE);
+  if (raw === null || !/^\d+$/.test(raw)) return null;
+  return Number(raw);
+}
+
+/**
+ * The reason of a POST reject body, or the 400 ValidationProblem the back-end
+ * answers (checked before the transaction, so whatever its status).
+ */
+function readRejectionReason(
+  raw: UploadRequest | undefined,
+): string | MockResponse {
+  const text = Buffer.from(raw?.body ?? new Uint8Array()).toString('utf8');
+  if (text.trim() === '') {
+    return validationProblem({ $: ['A non-empty request body is required.'] });
+  }
+  const body = jsonBody(raw);
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return validationProblem({
+      $: ['The request body could not be read as JSON.'],
+    });
+  }
+  const value = (body as Record<string, unknown>).reason;
+  if (value !== undefined && value !== null && typeof value !== 'string') {
+    return validationProblem({
+      [REJECTION_REASON_FIELD]: [REJECTION_REASON_NOT_A_STRING_MESSAGE],
+      $: ['The request body could not be read as JSON.'],
+    });
+  }
+  const checked = checkRejectionReason(value);
+  if (!checked.ok) {
+    return validationProblem({ [REJECTION_REASON_FIELD]: [checked.message] });
+  }
+  return checked.reason;
+}
+
+/**
+ * POST transactions/{id}/approve | reject for the signed-in approver `approverName`:
+ * 404 unknown (or its file cancelled), 409 `{ message, transaction }` when no longer
+ * Imported, else 200 the decided details (kept in the run's state).
+ */
+function decideTransaction(
+  id: string,
+  decision: { kind: 'approve' } | { kind: 'reject'; reason: string },
+  approverName: string,
+  dataset: MockDataset,
+  state: RunState,
+): MockResponse {
+  const current = currentTransactions(dataset, state).find(
+    (t) => t.id.toLowerCase() === id.toLowerCase(),
+  );
+  if (!current) return json(404, { message: TRANSACTION_NOT_FOUND_MESSAGE });
+  if (current.status !== 'Imported') {
+    return json(409, transactionConflictBody(current));
+  }
+  const stamp = { by: approverName, at: new Date().toISOString() };
+  const decided =
+    decision.kind === 'approve'
+      ? approvedDetailsOf(current, stamp)
+      : rejectedDetailsOf(current, decision.reason, stamp);
+  state.decisions.set(current.id.toLowerCase(), decided);
+  return json(200, decided);
+}
+
+const TRANSACTION_DECISION_PATH = /^\/transactions\/([^/]+)\/(approve|reject)$/;
 
 // ---------------------------------------------------------------------------
 // GET /files query semantics
@@ -877,11 +1038,11 @@ function findFile(
   state: RunState,
 ): FileDetails | undefined {
   const key = id.toLowerCase();
-  return (
+  const found =
     state.files.get(key) ??
     filesFor(dataset).find((f) => f.id.toLowerCase() === key) ??
-    uploadedFiles.get(key)
-  );
+    uploadedFiles.get(key);
+  return found && withDecisions(found, state);
 }
 
 /** GET /files/{id} over `dataset` + run state. */
@@ -1411,6 +1572,48 @@ export function respondFor(
         ? listInvalidRows(fileId, dataset, state)
         : saveCorrections(fileId, upload, dataset, state);
     }
+  }
+  const decisionMatch = TRANSACTION_DECISION_PATH.exec(path);
+  if (method === 'POST' && decisionMatch) {
+    const [, transactionId, operation] = decisionMatch;
+    const role = roleFromCookie(cookieHeader);
+    if (!role) return unauthenticated(cookieHeader);
+    if (role !== 'Approver') return json(403, forbiddenBody());
+    if (!UUID_PATTERN.test(transactionId)) {
+      return validationProblem({
+        transactionId: [`The value '${transactionId}' is not valid.`],
+      });
+    }
+    let decision: { kind: 'approve' } | { kind: 'reject'; reason: string } = {
+      kind: 'approve',
+    };
+    if (operation === 'reject') {
+      const reason = readRejectionReason(upload);
+      if (typeof reason !== 'string') return reason;
+      decision = { kind: 'reject', reason };
+    }
+    const dataset = datasetFromCookie(cookieHeader);
+    return decideTransaction(
+      transactionId,
+      decision,
+      userInfoFor(role).name,
+      dataset,
+      runStateFor(cookieHeader, dataset),
+    );
+  }
+  if (method === 'GET' && path === '/transactions/imported-count') {
+    const role = roleFromCookie(cookieHeader);
+    if (!role) return unauthenticated(cookieHeader);
+    if (role !== 'Approver') return json(403, forbiddenBody());
+    const override = importedCountOverride(cookieHeader);
+    if (override !== null) return json(200, { count: override });
+    const dataset = datasetFromCookie(cookieHeader);
+    return json(
+      200,
+      importedCountOf(
+        currentTransactions(dataset, runStateFor(cookieHeader, dataset)),
+      ),
+    );
   }
   if (method === 'POST' && path === '/auth/sign-out') {
     return {

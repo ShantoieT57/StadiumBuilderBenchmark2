@@ -6,8 +6,10 @@
  * - The view (sort, page, page size, filters) lives in the URL search params, so
  *   reload, Back and links restore it (BR2). Changing it pushes a new URL.
  * - Desktop (md and up) shows a table; narrow screens show compact rows with the
- *   key details and an actions area holding the details link (later epics add
- *   Approve / Reject there).
+ *   key details and an actions area holding the details link.
+ * - For an Approver (`role`), every Imported row offers Approve and Reject (a
+ *   last "Actions" column on desktop, after "Details" on phones). A decision's
+ *   answer replaces the row at once, then the view is refetched in place.
  * - Refetches in place on the shell's `transactions-changed` and `resync` events,
  *   keeping the current view (NFR-5: no connection of its own).
  * - A failed first load replaces the list with a problem + Retry; a failed later
@@ -29,6 +31,8 @@ import {
 } from 'react';
 
 import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
+import { toTransactionListItem } from '@/components/transactions/decisionConflict';
+import { TransactionRowActions } from '@/components/transactions/TransactionRowActions';
 import { TransactionStatusBadge } from '@/components/transactions/TransactionStatusBadge';
 import {
   fileNameFor,
@@ -55,6 +59,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useEvents } from '@/contexts/EventsContext';
+import { useImportedCount } from '@/contexts/ImportedCountContext';
 import { getTransactions } from '@/lib/api/endpoints';
 import { isNetworkError, isRedirectingToSignIn } from '@/lib/api/errors';
 import {
@@ -81,9 +86,11 @@ import {
 import { rememberListSearch } from '@/lib/transactions/listReturn';
 import type {
   ListTransactionsQuery,
+  TransactionDetails,
   TransactionListItem,
   TransactionPage,
   TransactionSortColumn,
+  UserRole,
 } from '@/types/api-generated';
 
 export const LOADING_TRANSACTIONS_MESSAGE = 'Loading transactions';
@@ -146,15 +153,28 @@ function SortIcon({
   );
 }
 
+/** Approve / Reject are offered to an Approver on Imported rows only (R1, BR1). */
+function canDecide(
+  role: UserRole | undefined,
+  item: TransactionListItem,
+): boolean {
+  return role === 'Approver' && item.status === 'Imported';
+}
+
 function TransactionsTable({
   items,
   view,
+  role,
   onSort,
+  onSettled,
 }: {
   items: TransactionListItem[];
   view: TransactionListState;
+  role: UserRole | undefined;
   onSort: (column: TransactionSortColumn) => void;
+  onSettled: (details: TransactionDetails | null) => void;
 }) {
+  const showActions = role === 'Approver';
   return (
     <div className="hidden md:block">
       <Table>
@@ -189,6 +209,7 @@ function TransactionsTable({
                 </TableHead>
               );
             })}
+            {showActions && <TableHead>Actions</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -219,6 +240,13 @@ function TransactionsTable({
                 <TransactionStatusBadge status={item.status} />
               </TableCell>
               <TableCell>{item.file.fileName}</TableCell>
+              {showActions && (
+                <TableCell>
+                  {canDecide(role, item) && (
+                    <TransactionRowActions item={item} onSettled={onSettled} />
+                  )}
+                </TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>
@@ -227,7 +255,15 @@ function TransactionsTable({
   );
 }
 
-function TransactionsCompactList({ items }: { items: TransactionListItem[] }) {
+function TransactionsCompactList({
+  items,
+  role,
+  onSettled,
+}: {
+  items: TransactionListItem[];
+  role: UserRole | undefined;
+  onSettled: (details: TransactionDetails | null) => void;
+}) {
   return (
     <ul aria-label="Transactions" className="flex flex-col gap-2 md:hidden">
       {items.map((item) => (
@@ -248,13 +284,17 @@ function TransactionsCompactList({ items }: { items: TransactionListItem[] }) {
             </span>
             <span>{formatTransactionType(item.transactionType)}</span>
           </div>
-          {/* Row actions: the details link; later epics add Approve / Reject here. */}
+          {/* Row actions: the details link, then Approve / Reject for an Approver. */}
           <div className="flex flex-wrap justify-end gap-2">
             <Button asChild variant="outline" size="sm">
               <Link href={transactionDetailsHref(item.id)}>
-                Details<span className="sr-only"> for {item.reference}</span>
+                {'Details '}
+                <span className="sr-only">for {item.reference}</span>
               </Link>
             </Button>
+            {canDecide(role, item) && (
+              <TransactionRowActions item={item} onSettled={onSettled} />
+            )}
           </div>
         </li>
       ))}
@@ -371,9 +411,10 @@ function Paging({
   );
 }
 
-export function TransactionsList() {
+export function TransactionsList({ role }: { role?: UserRole } = {}) {
   const { view, navigate } = useListQuery();
   const { subscribe } = useEvents();
+  const { refreshImportedCount } = useImportedCount();
 
   const listSearch = useMemo(() => toListSearch(view), [view]);
   const query = useMemo(() => toTransactionsQuery(view), [view]);
@@ -437,6 +478,31 @@ export function TransactionsList() {
   const retry = () => {
     setFailure(null);
     void load(queryRef.current);
+  };
+
+  // After a decision (or a "someone got there first" answer): show the row as
+  // the back-end returned it at once, then refetch the current view in place so
+  // an active filter drops a row that no longer matches (BR9), and bring the
+  // menu's waiting count up to date (BR8).
+  const settled = (details: TransactionDetails | null) => {
+    if (details !== null) {
+      const row = toTransactionListItem(details);
+      setLoaded((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              page: {
+                ...current.page,
+                items: current.page.items.map((item) =>
+                  item.id === row.id ? row : item,
+                ),
+              },
+            },
+      );
+    }
+    void load(queryRef.current);
+    refreshImportedCount();
   };
 
   const result = loaded?.page ?? null;
@@ -511,9 +577,15 @@ export function TransactionsList() {
         <TransactionsTable
           items={result.items}
           view={view}
+          role={role}
           onSort={(column) => navigate(withSort(view, column))}
+          onSettled={settled}
         />
-        <TransactionsCompactList items={result.items} />
+        <TransactionsCompactList
+          items={result.items}
+          role={role}
+          onSettled={settled}
+        />
         <Paging
           result={result}
           view={view}
