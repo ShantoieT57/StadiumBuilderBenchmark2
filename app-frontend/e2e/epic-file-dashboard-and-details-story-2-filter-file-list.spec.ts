@@ -114,9 +114,12 @@ function filesTable(page: Page): Locator {
   });
 }
 
-/** The file names shown in the desktop table, in display order. */
+/**
+ * The file names shown in the desktop table, in display order. An Importer also
+ * sees "Correct <file name>" shortcut links, which are not file names.
+ */
 function fileNames(page: Page): Locator {
-  return filesTable(page).getByRole('link');
+  return filesTable(page).getByRole('link', { name: /^(?!Correct ).+\.csv$/ });
 }
 
 /** The table row of the file called `name`. */

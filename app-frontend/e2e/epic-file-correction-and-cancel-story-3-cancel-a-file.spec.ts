@@ -333,7 +333,10 @@ test.describe('Epic file-correction-and-cancel, Story 3: Cancel a file', () => {
 
     // Default (Active) list: gone, 8 files left.
     await page.goto('/dashboard');
-    const names = filesTable(page).getByRole('link');
+    // File-name links only: an Importer also sees "Correct <file name>" shortcuts.
+    const names = filesTable(page).getByRole('link', {
+      name: /^(?!Correct ).+\.csv$/,
+    });
     await expect(names).toHaveCount(8);
     await expect(fileRow(page, fileName)).toHaveCount(0);
 

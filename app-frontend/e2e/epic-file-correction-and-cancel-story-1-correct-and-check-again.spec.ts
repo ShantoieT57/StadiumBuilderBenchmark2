@@ -73,6 +73,8 @@ const FILE_11 = DASHBOARD_FILE_IDS.mixedCaseInvalid;
 const FILE_11_NAME = 'Q1-Adjustments.csv';
 
 const SERVER_AMOUNT_MESSAGE = 'Amount is larger than the bank allows.';
+/** Passes the browser's amount rule (16 whole digits max); the mocked server refuses it. */
+const SERVER_REFUSED_AMOUNT = '9999999999999999.99';
 
 test.use({ timezoneId: 'Africa/Johannesburg' });
 
@@ -262,15 +264,17 @@ test.describe('Epic file-correction-and-cancel, Story 1: Correct invalid rows an
       { times: 1 },
     );
 
+    // A value the browser accepts (at most 16 whole digits, the back-end's
+    // numeric(18,2) limit), so the check is sent and the SERVER refuses it.
     const amount = field(row11, 'Amount');
-    await amount.fill('99999999999999999.00');
+    await amount.fill(SERVER_REFUSED_AMOUNT);
     await main.getByRole('button', { name: 'Check again' }).click();
 
     await expect(row11.getByText(SERVER_AMOUNT_MESSAGE)).toBeVisible();
     await expect(amount).toHaveAccessibleDescription(
       new RegExp(SERVER_AMOUNT_MESSAGE.replace(/\./g, '\\.')),
     );
-    await expect(amount).toHaveValue('99999999999999999.00');
+    await expect(amount).toHaveValue(SERVER_REFUSED_AMOUNT);
 
     // Accessibility: the still-failing screen with a server field problem shown.
     await expectNoAxeViolations(page);

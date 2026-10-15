@@ -118,9 +118,14 @@ async function signInAs(
   );
 }
 
-/** The file-name links shown in the desktop table, in display order. */
+/**
+ * The file-name links shown in the desktop table, in display order. An Importer
+ * also sees "Correct <file name>" shortcut links, which are not file names.
+ */
 function tableFileNames(page: Page) {
-  return page.getByRole('table').getByRole('link', { name: /\.csv$/i });
+  return page
+    .getByRole('table')
+    .getByRole('link', { name: /^(?!Correct ).+\.csv$/i });
 }
 
 async function choosePageSize(page: Page, size: string): Promise<void> {
