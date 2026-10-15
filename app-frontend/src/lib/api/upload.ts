@@ -24,6 +24,13 @@ export interface UploadFileOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * What a finished upload is known to be. Any 2xx means the file was stored:
+ * normally the 201 body (`UploadedFile`), but when that answer has no readable
+ * body only the file's name is known and there is no `id` to link to.
+ */
+export type UploadResult = UploadedFile | { fileName: string; id?: undefined };
+
 const UPLOAD_URL = `${API_BASE_URL}/files`;
 
 /** Whole-number percentage of `loaded` out of `total`, kept within 0-100. */
@@ -38,6 +45,25 @@ function responseTextOf(xhr: XMLHttpRequest): string {
     return xhr.response == null ? '' : JSON.stringify(xhr.response);
   }
   return typeof xhr.responseText === 'string' ? xhr.responseText : '';
+}
+
+/**
+ * A 2xx answer as the upload's result: the `UploadedFile` body when it is one,
+ * else just the sent file's name (an empty or non-JSON body still means stored).
+ */
+function resultFor(xhr: XMLHttpRequest, file: File): UploadResult {
+  try {
+    const body: unknown = JSON.parse(responseTextOf(xhr));
+    if (typeof body === 'object' && body !== null) {
+      const { id, fileName } = body as { id?: unknown; fileName?: unknown };
+      if (typeof id === 'string' && typeof fileName === 'string') {
+        return body as UploadedFile;
+      }
+    }
+  } catch {
+    // Not JSON: fall through to what is known.
+  }
+  return { fileName: file.name };
 }
 
 /** A finished request's error answer as the API client's `APIError`. */
@@ -59,14 +85,15 @@ async function errorFor(xhr: XMLHttpRequest): Promise<unknown> {
 
 /**
  * POST /files - uploads one file as multipart/form-data (`file`, `kind`) and
- * resolves with the received file (201). Rejects with an `APIError`.
+ * resolves with the received file (any 2xx; see `UploadResult`). Rejects with
+ * an `APIError`.
  */
 export function uploadFile(
   file: File,
   kind: FileKind,
   { onProgress, signal }: UploadFileOptions = {},
-): Promise<UploadedFile> {
-  return new Promise<UploadedFile>((resolve, reject) => {
+): Promise<UploadResult> {
+  return new Promise<UploadResult>((resolve, reject) => {
     if (signal?.aborted) {
       reject(createNetworkError(UPLOAD_URL));
       return;
@@ -93,11 +120,8 @@ export function uploadFile(
     xhr.addEventListener('load', () => {
       cleanUp();
       if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          resolve(JSON.parse(responseTextOf(xhr)) as UploadedFile);
-        } catch {
-          reject(createNetworkError(UPLOAD_URL));
-        }
+        // Any 2xx means stored: never offer "Try again", which would duplicate it.
+        resolve(resultFor(xhr, file));
         return;
       }
       if (xhr.status === 0) {

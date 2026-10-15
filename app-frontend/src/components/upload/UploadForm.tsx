@@ -37,7 +37,7 @@ import {
   isRedirectingToSignIn,
   statusOf,
 } from '@/lib/api/errors';
-import { uploadFile } from '@/lib/api/upload';
+import { uploadFile, type UploadResult } from '@/lib/api/upload';
 import {
   dashboardListHref,
   rememberedFileListSearch,
@@ -45,7 +45,7 @@ import {
 import { formatFileSize } from '@/lib/format/file';
 import { uploadRefusal } from '@/lib/validation/upload';
 import { cn } from '@/lib/utils';
-import type { FileKind, UploadedFile } from '@/types/api-generated';
+import type { FileKind } from '@/types/api-generated';
 
 /** Shown under the file field when Upload is selected with no file chosen (BR8). */
 export const CHOOSE_A_FILE_MESSAGE = 'Choose a file to upload.';
@@ -71,6 +71,22 @@ interface UploadProblem {
   retry?: File;
 }
 
+/**
+ * The server's own words in a JSON error body, in the API client's priority:
+ * its `message`, else every ValidationProblem `errors` value; '' when the body
+ * carried neither (or there was no body).
+ */
+function serverWordsOf(body: unknown): string {
+  if (typeof body !== 'object' || body === null) return '';
+  const { message, errors } = body as { message?: unknown; errors?: unknown };
+  if (typeof message === 'string' && message.trim() !== '') return message;
+  if (typeof errors !== 'object' || errors === null) return '';
+  return Object.values(errors)
+    .flat()
+    .filter((entry): entry is string => typeof entry === 'string')
+    .join(' ');
+}
+
 /** Turns a rejected upload into the field's problem (BR3, R6). Names the file only (NFR-4). */
 function problemFor(error: unknown, chosen: File): UploadProblem {
   if (isNetworkError(error)) {
@@ -82,13 +98,9 @@ function problemFor(error: unknown, chosen: File): UploadProblem {
     status !== undefined &&
     REFUSAL_STATUSES.includes(status)
   ) {
-    const validationMessages = error.errors
-      ? Object.values(error.errors).flat()
-      : [];
-    const message =
-      validationMessages.length > 0
-        ? validationMessages.join(' ')
-        : error.message;
+    // One source - the body as received. `error.message` / `details` may be the
+    // client's status fallback (e.g. "HTTP 413: ") when the body said nothing.
+    const message = serverWordsOf(error.body);
     if (message.trim() !== '') return { message };
   }
   return { message: UPLOAD_FAILED_MESSAGE, retry: chosen };
@@ -120,7 +132,7 @@ function RequiredMark() {
 const noSubscription = () => () => {};
 
 /** "Last upload": the file just sent, with links to follow its processing (R7). */
-function LastUpload({ uploaded }: { uploaded: UploadedFile }) {
+function LastUpload({ uploaded }: { uploaded: UploadResult }) {
   const search = useSyncExternalStore(
     noSubscription,
     rememberedFileListSearch,
@@ -136,9 +148,12 @@ function LastUpload({ uploaded }: { uploaded: UploadedFile }) {
       </h2>
       <p className="break-all">{uploaded.fileName}</p>
       <div className="flex flex-wrap gap-2">
-        <Button asChild variant="outline" size="sm">
-          <Link href={fileDetailsHref(uploaded.id)}>View file details</Link>
-        </Button>
+        {/* No id when the server's answer had no readable body: nothing to link to. */}
+        {uploaded.id !== undefined && (
+          <Button asChild variant="outline" size="sm">
+            <Link href={fileDetailsHref(uploaded.id)}>View file details</Link>
+          </Button>
+        )}
         <Button asChild variant="ghost" size="sm">
           <Link href={dashboardListHref(search)}>Go to dashboard</Link>
         </Button>
@@ -164,7 +179,7 @@ export function UploadForm() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [announcement, setAnnouncement] = useState('');
-  const [lastUpload, setLastUpload] = useState<UploadedFile | null>(null);
+  const [lastUpload, setLastUpload] = useState<UploadResult | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
   const id = useId();

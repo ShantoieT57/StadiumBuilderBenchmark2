@@ -16,7 +16,7 @@
     ],
     "manualTestResults": []
   },
-  "phase": "BUILD",
+  "phase": "EPIC-END",
   "stories": {
     "1": {
       "status": "complete",

@@ -185,6 +185,19 @@ class FakeXMLHttpRequest extends EventTarget {
     FakeXMLHttpRequest.fire(this, new ProgressEvent('load'));
     FakeXMLHttpRequest.fire(this, new ProgressEvent('loadend'));
   }
+
+  /** The server answering with `status` and a raw (possibly empty, non-JSON) body. */
+  respondWithText(status: number, text: string): void {
+    this.status = status;
+    this.statusText = status === 201 ? 'Created' : '';
+    this.responseHeaders = text === '' ? {} : { 'content-type': 'text/plain' };
+    this.responseText = this.responseType === 'json' ? '' : text;
+    this.response = this.responseType === 'json' ? null : text;
+    this.readyState = 4;
+    FakeXMLHttpRequest.fire(this, new Event('readystatechange'));
+    FakeXMLHttpRequest.fire(this, new ProgressEvent('load'));
+    FakeXMLHttpRequest.fire(this, new ProgressEvent('loadend'));
+  }
 }
 
 /** Next page props, loose enough for the page's signature. */
@@ -349,5 +362,43 @@ describe('Epic file-upload, Story 1: upload a file with progress and confirmatio
     expect(
       screen.getByRole('combobox', { name: /kind of file/i }),
     ).not.toBeDisabled();
+  });
+
+  // Code review: any 2xx means the file is stored, even without a readable body.
+  it('confirms the upload when the server answers 201 with an empty body, without offering Try again or a details link', async () => {
+    const user = userEvent.setup();
+    await renderUploadPage();
+
+    await user.upload(
+      screen.getByLabelText(/file to upload/i, {
+        selector: 'input[type="file"]',
+      }),
+      new File(['ignored'], UPLOADED_FILE_NAME, { type: 'text/csv' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Upload' }));
+
+    const xhr = await sentRequest();
+    act(() => xhr.respondWithText(201, ''));
+
+    const notifications = screen.getByRole('region', { name: 'Notifications' });
+    expect(
+      await within(notifications).findByText(
+        `${UPLOADED_FILE_NAME} has been uploaded successfully.`,
+      ),
+    ).toBeInTheDocument();
+
+    const lastUpload = screen.getByRole('region', { name: 'Last upload' });
+    expect(
+      within(lastUpload).getByText(UPLOADED_FILE_NAME),
+    ).toBeInTheDocument();
+    expect(
+      within(lastUpload).getByRole('link', { name: 'Go to dashboard' }),
+    ).toBeInTheDocument();
+    expect(
+      within(lastUpload).queryByRole('link', { name: 'View file details' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Try again' }),
+    ).not.toBeInTheDocument();
   });
 });

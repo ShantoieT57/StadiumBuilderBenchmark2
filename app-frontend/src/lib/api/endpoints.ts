@@ -72,7 +72,7 @@ export const getDashboardSummary = () =>
  * Importers only. Rejects with the same `APIError` shape as the client.
  */
 export { uploadFile } from '@/lib/api/upload';
-export type { UploadFileOptions } from '@/lib/api/upload';
+export type { UploadFileOptions, UploadResult } from '@/lib/api/upload';
 
 /** GET /files - one page of files, sorted and filtered. */
 export const getFiles = (params?: ListFilesQuery) =>
