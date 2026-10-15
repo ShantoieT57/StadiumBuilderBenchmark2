@@ -280,7 +280,9 @@ test.describe('Epic file-dashboard-and-details, Story 1: Dashboard file list wit
       .filter({ hasText: 'april-batch-1.csv' });
     await expect(row).toBeVisible();
     await expect(row).toContainText('Completed');
-    await expect(row).toContainText(/Imported\D{0,3}9\b|\b9\s*Imported/i);
+    // Card text is concatenated textContent ("Imported: 9Details ..."), so the
+    // count's end is checked with "no further digit" rather than a word boundary.
+    await expect(row).toContainText(/Imported\D{0,3}9(?!\d)|\b9\s*Imported/i);
     await expect(row).toContainText('2026-04-30 18:05');
 
     // An unprocessed file says so in words.
