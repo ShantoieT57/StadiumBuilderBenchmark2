@@ -6,12 +6,14 @@
  */
 
 /**
- * API base URL - Retrieved from environment variable
- * Set NEXT_PUBLIC_API_BASE_URL in your .env.local file
- * Default: http://localhost:8042 (adjust as needed)
+ * API base URL used by the browser-side API client.
+ *
+ * Always the same-origin `/api` proxy (src/app/api/[...path]/route.ts): the
+ * back-end sends no CORS headers, so the browser must never call it directly.
+ * The real back-end address is the server-only `BACKEND_URL` env var
+ * (see src/lib/server/backend.ts) and is deliberately NOT configurable here.
  */
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8042';
+export const API_BASE_URL = '/api';
 
 /**
  * Default pagination settings

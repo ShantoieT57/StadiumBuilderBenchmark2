@@ -1,0 +1,75 @@
+/**
+ * Server-side session check for the signed-in layout and `/` (BR3 / NFR-1).
+ * SERVER ONLY: uses `next/headers`.
+ *
+ * Calls `GET ${BACKEND_URL}/auth/me` with the incoming `txn_session` cookie.
+ * Every /auth/me call counts as session activity at the back-end, so this runs
+ * only on real navigation, never on a timer.
+ */
+import { cookies } from 'next/headers';
+
+import { backendUrl, SESSION_COOKIE } from '@/lib/server/backend';
+import type { CurrentUser, UnauthenticatedReason } from '@/types/api-generated';
+
+export type SessionCheck =
+  | { status: 'signed-in'; user: CurrentUser }
+  | { status: 'signed-out'; reason: UnauthenticatedReason }
+  | { status: 'unavailable' };
+
+const REASONS: readonly UnauthenticatedReason[] = [
+  'NotSignedIn',
+  'SessionExpired',
+  'SignedInElsewhere',
+  'SignedOut',
+];
+
+function reasonFrom(body: unknown): UnauthenticatedReason {
+  const reason = (body as { reason?: unknown } | null)?.reason;
+  return REASONS.find((known) => known === reason) ?? 'NotSignedIn';
+}
+
+/** Who is signed in for the current request, according to the back-end. */
+export async function checkSession(): Promise<SessionCheck> {
+  const session = (await cookies()).get(SESSION_COOKIE);
+  if (!session?.value) {
+    return { status: 'signed-out', reason: 'NotSignedIn' };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${backendUrl()}/auth/me`, {
+      headers: {
+        accept: 'application/json',
+        cookie: `${SESSION_COOKIE}=${session.value}`,
+      },
+      cache: 'no-store',
+    });
+  } catch {
+    return { status: 'unavailable' };
+  }
+
+  if (response.ok) {
+    return {
+      status: 'signed-in',
+      user: (await response.json()) as CurrentUser,
+    };
+  }
+  if (response.status === 401) {
+    const body: unknown = await response.json().catch(() => null);
+    return { status: 'signed-out', reason: reasonFrom(body) };
+  }
+  return { status: 'unavailable' };
+}
+
+/**
+ * Where to send a person who is not signed in. A reason other than
+ * `NotSignedIn` travels as `?reason=` so the sign-in screen can explain it.
+ */
+export function signInPathFor(
+  check: Exclude<SessionCheck, { status: 'signed-in' }>,
+): string {
+  if (check.status === 'signed-out' && check.reason !== 'NotSignedIn') {
+    return `/sign-in?reason=${check.reason}`;
+  }
+  return '/sign-in';
+}

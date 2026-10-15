@@ -77,3 +77,16 @@ Additional technical checks (2):
 - **Root layout.** Replace the template root layout's `<main className='min-h-screen'>` and its metadata, so the signed-in shell owns its own `<main>` landmark. Set the app title.
 - **Existing test.** `src/__tests__/integration/api-client.test.ts` may assert the old absolute base URL or the old logging behaviour. Update it when `client.ts` changes.
 - **shadcn primitives.** Already present: button, card, input, label.
+- **Generated API layer.** `src/types/api-generated.ts` and `src/lib/api/endpoints.ts` are generated from `app-backend/docs/TransactionApi.yaml`. Use `signIn`, `getCurrentUser` and `signOut` from there. Mock data: `src/mocks/data/identity.ts` and `src/mocks/data/currentUser.ts`.
+- **Client error bodies (must fix in this story).** `client.ts` `handleErrorResponse` only reads a `Messages` array, so it drops this API's error shapes:
+  - `{message}` (ErrorResponse)
+  - `{message, reason}` (401)
+  - `{errors, title, status}` (ValidationProblem; camelCase keys, `$` means the whole body)
+  - 409 `{message, transaction}`
+
+  Make the thrown API error keep the HTTP `status` and the parsed body (message, reason, errors and the raw body) so callers can branch on them:
+  - Story 1 needs a 401 "Invalid email or password" to be distinguishable from a network failure.
+  - Story 4 needs `reason`.
+  - Later epics need `errors` and the 409 body.
+
+  A network failure (fetch throws, or the proxy returns 502-504) must be distinguishable from an HTTP error.

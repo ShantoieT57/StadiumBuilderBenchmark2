@@ -1,10 +1,16 @@
-export default function HomePage() {
-  return (
-    <main className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold">Welcome</h1>
-      <p className="text-muted-foreground">
-        Replace this with your feature implementation.
-      </p>
-    </main>
-  );
+import { redirect } from 'next/navigation';
+
+import { landingPathFor } from '@/lib/auth/landing';
+import { checkSession, signInPathFor } from '@/lib/server/session';
+
+/**
+ * `/` has no screen of its own: a signed-in person goes to their role's
+ * landing page (SI-05), anyone else to sign-in. Decided server-side.
+ */
+export default async function RootPage() {
+  const session = await checkSession();
+  if (session.status === 'signed-in') {
+    redirect(landingPathFor(session.user.role));
+  }
+  redirect(signInPathFor(session));
 }

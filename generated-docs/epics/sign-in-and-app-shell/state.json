@@ -9,13 +9,16 @@
     "unverifiedAssumptions": [
       "Verify the sign-in actually sticks: the app assumes the back-end's sign-in cookie survives the trip through the app's own address (the proxy) on localhost. If the cookie is dropped or rejected on the way back, sign-in will appear to succeed but you'll be bounced straight back to the sign-in screen.",
       "Verify you get signed out without clicking: the app assumes the live connection's 'session ended' notice gets through the app's proxy promptly. If the proxy holds the stream back, the first browser in the 'sign in elsewhere' test won't return to sign-in on its own, and only will on your next click.",
-      "Verify the 'can't reach the app' message: the app assumes that a stopped back-end produces a recognisable failure through the proxy. If the proxy turns it into something that looks like an ordinary error, you might see a generic error or the wrong message instead of the connection-problem message."
+      "Verify the 'can't reach the app' message: the app assumes that a stopped back-end produces a recognisable failure through the proxy. If the proxy turns it into something that looks like an ordinary error, you might see a generic error or the wrong message instead of the connection-problem message.",
+      "When the back-end is down and you open a signed-in page (e.g. /upload), you are sent to the sign-in screen rather than an error page; the 'can't reach the app' message appears when you then try to sign in. Is that acceptable?",
+      "Connection message wording: \"We can't reach the app right now. Check your connection and try again.\" Confirm or reword.",
+      "The proxy forwards only the Accept, Accept-Language, Content-Type, Cookie and Last-Event-ID headers to the back-end (no Origin or Referer). Sign-in works this way; confirm no later endpoint depends on other headers."
     ],
     "manualTestResults": []
   },
   "phase": "BUILD",
   "stories": {
-    "1": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
+    "1": { "status": "complete", "commit": null, "e2eStatus": "deferred", "startedAt": "2026-10-15T07:30:00.000Z", "completedAt": "2026-10-15T07:45:00.000Z" },
     "2": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
     "3": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
     "4": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null }

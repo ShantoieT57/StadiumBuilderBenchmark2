@@ -8,9 +8,14 @@ const isCI = !!process.env.CI;
 // `npm run test:e2e` keeps the fast dev server.
 const e2eProd = !!process.env.E2E_PROD;
 const port = e2eProd ? 3100 : 3000;
+// Node-side mock back-end (e2e/global-setup.ts). The Next.js server's own back-end
+// calls (server layouts, route handlers) go to BACKEND_URL, so point it here —
+// Playwright never contacts the live back-end on :5100.
+const mockBackendPort = Number(process.env.E2E_MOCK_BACKEND_PORT ?? 5199);
 
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   testMatch: /.*\.spec\.ts$/,
   fullyParallel: true,
   forbidOnly: isCI,
@@ -34,6 +39,7 @@ export default defineConfig({
     // quality-check gate already built and gated it. Fast boot, low CPU. Dev uses next dev.
     command: e2eProd ? `npm run start -- -p ${port}` : 'npm run dev',
     url: `http://localhost:${port}`,
+    env: { BACKEND_URL: `http://127.0.0.1:${mockBackendPort}/api` },
     // prod-e2e never reuses a stray dev server (which would reintroduce the flakiness);
     // the distinct port also avoids colliding with a dev server still on :3000.
     reuseExistingServer: !isCI && !e2eProd,

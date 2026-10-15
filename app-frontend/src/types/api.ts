@@ -22,9 +22,22 @@ export interface DefaultResponse {
  */
 export interface APIError {
   message: string;
+  /**
+   * HTTP status of the refused response. `0` means the request never got an
+   * answer from the back-end: fetch threw, or the same-origin proxy answered
+   * 502 / 503 / 504 (see `isNetworkError` in `@/lib/api/errors`).
+   */
   statusCode?: number;
   details?: string[];
   endpoint?: string;
+  /** True when the back-end could not be reached (statusCode 0). */
+  isNetworkError?: boolean;
+  /** 401 bodies: why the request was not authenticated (`UnauthenticatedReason`). */
+  reason?: string;
+  /** 400 ValidationProblem bodies: camelCase JSON-path keys (`$` = whole body). */
+  errors?: Record<string, string[]>;
+  /** The parsed JSON error body as received (e.g. the 409 `{ message, transaction }`). */
+  body?: unknown;
 }
 
 export type QueryParamScalar = string | number | boolean;
