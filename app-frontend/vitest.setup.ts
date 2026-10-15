@@ -29,6 +29,17 @@ if (typeof (globalThis as { jest?: unknown }).jest === 'undefined') {
   };
 }
 
+// jsdom has no ResizeObserver; Radix popper-based primitives (Tooltip, etc.)
+// measure their anchor with it. A no-op stand-in is enough for jsdom, which
+// has no layout anyway.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver;
+}
+
 // Polyfill for Web APIs needed by Next.js
 // These are required for testing files that import from 'next/server'
 if (typeof Request === 'undefined') {

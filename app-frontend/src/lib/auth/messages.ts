@@ -23,5 +23,9 @@ export const CANNOT_REACH_APP_MESSAGE =
 export const SIGN_IN_FAILED_MESSAGE =
   'Something went wrong while signing you in. Please try again.';
 
+/** AC-02 / R11: a signed-in person opened a screen their role does not allow. */
+export const NO_ACCESS_TITLE = 'No access';
+export const NO_ACCESS_MESSAGE = `You don't have access to this screen. Ask ${ADMINISTRATOR_CONTACT} if you need it.`;
+
 export const EMAIL_REQUIRED_MESSAGE = 'Email is required';
 export const PASSWORD_REQUIRED_MESSAGE = 'Password is required';

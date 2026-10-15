@@ -12,17 +12,42 @@
       "Verify the 'can't reach the app' message: the app assumes that a stopped back-end produces a recognisable failure through the proxy. If the proxy turns it into something that looks like an ordinary error, you might see a generic error or the wrong message instead of the connection-problem message.",
       "When the back-end is down and you open a signed-in page (e.g. /upload), you are sent to the sign-in screen rather than an error page; the 'can't reach the app' message appears when you then try to sign in. Is that acceptable?",
       "Connection message wording: \"We can't reach the app right now. Check your connection and try again.\" Confirm or reword.",
-      "The proxy forwards only the Accept, Accept-Language, Content-Type, Cookie and Last-Event-ID headers to the back-end (no Origin or Referer). Sign-in works this way; confirm no later endpoint depends on other headers."
+      "The proxy forwards only the Accept, Accept-Language, Content-Type, Cookie and Last-Event-ID headers to the back-end (no Origin or Referer). Sign-in works this way; confirm no later endpoint depends on other headers.",
+      "The no-access screen shows the heading 'No access' above the approved message. Is that heading wording acceptable?"
     ],
     "manualTestResults": []
   },
   "phase": "BUILD",
   "stories": {
-    "1": { "status": "complete", "commit": null, "e2eStatus": "deferred", "startedAt": "2026-10-15T07:30:00.000Z", "completedAt": "2026-10-15T07:45:00.000Z" },
-    "2": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
-    "3": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null },
-    "4": { "status": "pending", "commit": null, "e2eStatus": "deferred", "startedAt": null, "completedAt": null }
+    "1": {
+      "status": "complete",
+      "commit": null,
+      "e2eStatus": "deferred",
+      "startedAt": "2026-10-15T07:30:00.000Z",
+      "completedAt": "2026-10-15T07:45:00.000Z"
+    },
+    "2": {
+      "status": "complete",
+      "commit": null,
+      "e2eStatus": "deferred",
+      "startedAt": "2026-10-15T07:50:00.000Z",
+      "completedAt": "2026-10-15T07:18:54.230Z"
+    },
+    "3": {
+      "status": "pending",
+      "commit": null,
+      "e2eStatus": "deferred",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "4": {
+      "status": "pending",
+      "commit": null,
+      "e2eStatus": "deferred",
+      "startedAt": null,
+      "completedAt": null
+    }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T07:00:00.000Z"
+  "lastUpdated": "2026-10-15T07:18:54.231Z"
 }

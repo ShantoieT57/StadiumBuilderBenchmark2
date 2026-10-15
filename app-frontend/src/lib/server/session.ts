@@ -7,6 +7,7 @@
  * only on real navigation, never on a timer.
  */
 import { cookies } from 'next/headers';
+import { cache } from 'react';
 
 import { backendUrl, SESSION_COOKIE } from '@/lib/server/backend';
 import type { CurrentUser, UnauthenticatedReason } from '@/types/api-generated';
@@ -60,6 +61,12 @@ export async function checkSession(): Promise<SessionCheck> {
   }
   return { status: 'unavailable' };
 }
+
+/**
+ * `checkSession`, de-duplicated per server request: the signed-in layout and
+ * the page's route guard share one `GET /auth/me` instead of making two.
+ */
+export const currentSession = cache(checkSession);
 
 /**
  * Where to send a person who is not signed in. A reason other than
