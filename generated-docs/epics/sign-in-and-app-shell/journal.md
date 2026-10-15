@@ -32,3 +32,8 @@
   - A sign-in elsewhere shows an "another device" message.
   - An ordinary signed-out visit shows nothing extra.
 - **Live connection.** It reuses the existing /api proxy rather than a separate route. The proxy now marks event streams so they are never buffered or compressed. Checked against the real back-end: the retry line and the heartbeats arrive straight away.
+
+## Manual test — 2026-10-15
+
+- **Who ran it.** Claude ran the checks in a real browser, against the real back-end (:5100) and the production build. This follows the user's standing preference that Claude runs manual tests.
+- **Result.** 29/29 passed, including all "check these first" items. The user accepted the results and the wording choices.

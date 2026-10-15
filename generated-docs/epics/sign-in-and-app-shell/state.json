@@ -21,9 +21,17 @@
       "When signed out by signing out on another device, this tab returns to the plain sign-in screen with no explanation. Confirm no \"you signed out elsewhere\" message is wanted.",
       "When three problem messages are already showing and a success message arrives, four messages show briefly instead of three. Check this looks acceptable on a narrow screen."
     ],
-    "manualTestResults": []
+    "manualTestResults": [
+      {
+        "by": "Claude (automated browser walkthrough against the real back-end, per user preference)",
+        "date": "2026-10-15T08:05:02.200Z",
+        "passed": 29,
+        "failed": 0,
+        "notes": "All checklist items and all check-these-first items passed against the real back-end on :5100 via the production build on :3200. Sign-in-elsewhere returned the first browser to sign-in in ~15s without a click. Back-after-sign-out verified with a 3-page history."
+      }
+    ]
   },
-  "phase": "MANUAL-TEST",
+  "phase": "COMPLETE-ON-BRANCH",
   "stories": {
     "1": {
       "status": "complete",
@@ -55,5 +63,5 @@
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T08:02:27.147Z"
+  "lastUpdated": "2026-10-15T08:30:18.920Z"
 }
