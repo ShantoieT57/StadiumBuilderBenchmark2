@@ -24,8 +24,10 @@ export function ImportedCountBadge() {
     <>
       <span className="sr-only">, </span>
       <Badge>
-        {shownCount(count)}
-        <span className="sr-only"> waiting for review</span>
+        {/* The space sits outside the span: a span's own text is trimmed when
+            the accessible name is computed (the flex badge does not render it). */}
+        {`${shownCount(count)} `}
+        <span className="sr-only">waiting for review</span>
       </Badge>
     </>
   );

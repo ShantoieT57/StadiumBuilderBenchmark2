@@ -1032,16 +1032,26 @@ function listFiles(
 }
 
 /** The file with `id` in `dataset` (or uploaded), with the run's changes, or undefined. */
-function findFile(
+/** The file as stored, without this run's decisions applied (what `state.files` holds). */
+function findStoredFile(
   id: string,
   dataset: MockDataset,
   state: RunState,
 ): FileDetails | undefined {
   const key = id.toLowerCase();
-  const found =
+  return (
     state.files.get(key) ??
     filesFor(dataset).find((f) => f.id.toLowerCase() === key) ??
-    uploadedFiles.get(key);
+    uploadedFiles.get(key)
+  );
+}
+
+function findFile(
+  id: string,
+  dataset: MockDataset,
+  state: RunState,
+): FileDetails | undefined {
+  const found = findStoredFile(id, dataset, state);
   return found && withDecisions(found, state);
 }
 
@@ -1375,7 +1385,9 @@ function startCorrection(
   if (new Set(ids).size !== ids.length) {
     return json(400, { message: ROW_REPEATED_MESSAGE });
   }
-  const file = findFile(id, dataset, state);
+  // Undecorated: a re-check stores the file it returns into `state.files`, and
+  // reads apply the decisions again (applying them here too would count them twice).
+  const file = findStoredFile(id, dataset, state);
   if (!file) return json(404, { message: FILE_NOT_FOUND_MESSAGE });
   if (!isWaitingForCorrections(file)) {
     return json(409, { message: NOT_WAITING_FOR_CORRECTIONS_MESSAGE });
@@ -1487,7 +1499,10 @@ function recheckFile(
       }),
     );
   });
-  return json(200, outcome.result);
+  return json(200, {
+    ...outcome.result,
+    file: withDecisions(outcome.result.file, state),
+  });
 }
 
 /** POST /files/{id}/cancel. */

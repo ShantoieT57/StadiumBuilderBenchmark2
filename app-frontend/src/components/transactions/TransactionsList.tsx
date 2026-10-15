@@ -9,7 +9,9 @@
  *   key details and an actions area holding the details link.
  * - For an Approver (`role`), every Imported row offers Approve and Reject (a
  *   last "Actions" column on desktop, after "Details" on phones). A decision's
- *   answer replaces the row at once, then the view is refetched in place.
+ *   answer replaces the row at once, then the view is refetched in place; focus
+ *   then moves to the row's details link, or to the results when the row has
+ *   left the view.
  * - Refetches in place on the shell's `transactions-changed` and `resync` events,
  *   keeping the current view (NFR-5: no connection of its own).
  * - A failed first load replaces the list with a problem + Retry; a failed later
@@ -153,6 +155,34 @@ function SortIcon({
   );
 }
 
+/**
+ * Marks a row's details link (`data-transaction-link`), so focus can return to
+ * the row after a decision.
+ */
+const ROW_LINK_ATTRIBUTE = 'data-transaction-link';
+
+/** Where a decision was made from: the row's id (a new object each time). */
+interface FocusRequest {
+  transactionId: string;
+}
+
+/**
+ * After a decision: focus the row's visible details link (table or compact list,
+ * whichever is shown), or the results when the row is no longer in the view.
+ */
+function focusAfterDecision(
+  results: HTMLElement | null,
+  transactionId: string,
+): void {
+  if (results === null) return;
+  const links = Array.from(
+    results.querySelectorAll<HTMLElement>(`[${ROW_LINK_ATTRIBUTE}]`),
+  ).filter((link) => link.getAttribute(ROW_LINK_ATTRIBUTE) === transactionId);
+  const target =
+    links.find((link) => link.getClientRects().length > 0) ?? links[0];
+  (target ?? results).focus();
+}
+
 /** Approve / Reject are offered to an Approver on Imported rows only (R1, BR1). */
 function canDecide(
   role: UserRole | undefined,
@@ -172,7 +202,7 @@ function TransactionsTable({
   view: TransactionListState;
   role: UserRole | undefined;
   onSort: (column: TransactionSortColumn) => void;
-  onSettled: (details: TransactionDetails | null) => void;
+  onSettled: (id: string, details: TransactionDetails | null) => void;
 }) {
   const showActions = role === 'Approver';
   return (
@@ -218,6 +248,7 @@ function TransactionsTable({
               <TableCell className="font-medium">
                 <Link
                   href={transactionDetailsHref(item.id)}
+                  data-transaction-link={item.id}
                   className="text-primary underline-offset-4 hover:underline focus-visible:ring-ring/50 rounded-sm outline-none focus-visible:ring-[3px]"
                 >
                   {item.reference}
@@ -243,7 +274,10 @@ function TransactionsTable({
               {showActions && (
                 <TableCell>
                   {canDecide(role, item) && (
-                    <TransactionRowActions item={item} onSettled={onSettled} />
+                    <TransactionRowActions
+                      item={item}
+                      onSettled={(details) => onSettled(item.id, details)}
+                    />
                   )}
                 </TableCell>
               )}
@@ -262,7 +296,7 @@ function TransactionsCompactList({
 }: {
   items: TransactionListItem[];
   role: UserRole | undefined;
-  onSettled: (details: TransactionDetails | null) => void;
+  onSettled: (id: string, details: TransactionDetails | null) => void;
 }) {
   return (
     <ul aria-label="Transactions" className="flex flex-col gap-2 md:hidden">
@@ -287,13 +321,19 @@ function TransactionsCompactList({
           {/* Row actions: the details link, then Approve / Reject for an Approver. */}
           <div className="flex flex-wrap justify-end gap-2">
             <Button asChild variant="outline" size="sm">
-              <Link href={transactionDetailsHref(item.id)}>
+              <Link
+                href={transactionDetailsHref(item.id)}
+                data-transaction-link={item.id}
+              >
                 {'Details '}
                 <span className="sr-only">for {item.reference}</span>
               </Link>
             </Button>
             {canDecide(role, item) && (
-              <TransactionRowActions item={item} onSettled={onSettled} />
+              <TransactionRowActions
+                item={item}
+                onSettled={(details) => onSettled(item.id, details)}
+              />
             )}
           </div>
         </li>
@@ -426,6 +466,8 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
   const [failure, setFailure] = useState<unknown>(null);
   const queryRef = useRef<ListTransactionsQuery>(query);
   const requestRef = useRef(0);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
 
   // State is only ever set from the promise callbacks (after the response
   // arrives), never synchronously while an effect is running.
@@ -475,6 +517,12 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, [subscribe, load]);
 
+  // Once the view has refetched after a decision, put focus back near the row.
+  useEffect(() => {
+    if (focusRequest === null) return;
+    focusAfterDecision(resultsRef.current, focusRequest.transactionId);
+  }, [focusRequest]);
+
   const retry = () => {
     setFailure(null);
     void load(queryRef.current);
@@ -483,8 +531,9 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
   // After a decision (or a "someone got there first" answer): show the row as
   // the back-end returned it at once, then refetch the current view in place so
   // an active filter drops a row that no longer matches (BR9), and bring the
-  // menu's waiting count up to date (BR8).
-  const settled = (details: TransactionDetails | null) => {
+  // menu's waiting count up to date (BR8). The row's Approve / Reject have gone,
+  // so focus moves once the refetch has landed (see focusAfterDecision).
+  const settled = (id: string, details: TransactionDetails | null) => {
     if (details !== null) {
       const row = toTransactionListItem(details);
       setLoaded((current) =>
@@ -501,7 +550,9 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
             },
       );
     }
-    void load(queryRef.current);
+    void load(queryRef.current).then(() => {
+      setFocusRequest({ transactionId: id });
+    });
     refreshImportedCount();
   };
 
@@ -606,9 +657,13 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
         </p>
       )}
       {refreshFailed && <RefreshFailedNotice onRetry={retry} />}
+      {/* Focusable from script only: focus lands here after a decision when the
+          decided row has left the view. */}
       <div
+        ref={resultsRef}
+        tabIndex={-1}
         aria-busy={updating ? true : undefined}
-        className="flex min-w-0 flex-col gap-4"
+        className="flex min-w-0 flex-col gap-4 outline-none"
       >
         {content}
       </div>

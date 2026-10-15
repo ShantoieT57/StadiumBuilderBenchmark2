@@ -19,13 +19,22 @@
  *   one inline problem above the buttons. The form stays open with the reason kept.
  * - 409 (someone got there first): closes, persistent problem with the back-end's
  *   message and the current status, `onSettled(current details or null)`.
+ * - After a decision (200 or 409) focus is left to the list (the row leaves
+ *   Imported, so the trigger goes); Cancel / Escape still return it to the trigger.
  * - Other failures keep the form open with an inline problem and "Try again"
  *   (403 shows the server's message).
  * The reason, account numbers and descriptions are never logged.
  */
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useId, useRef, useState, type RefObject } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 
 import {
@@ -151,7 +160,6 @@ function RejectReasonForm({
   const { showToast } = useToast();
   const [pending, setPending] = useState(false);
   const [problem, setProblem] = useState<InlineProblem | null>(null);
-  const lastSentRef = useRef('');
   const ids = {
     reason: useId(),
     counter: useId(),
@@ -182,7 +190,6 @@ function RejectReasonForm({
   const send = (trimmed: string) => {
     if (sendingRef.current) return;
     sendingRef.current = true;
-    lastSentRef.current = trimmed;
     setPending(true);
     setProblem(null);
     rejectTransaction(transactionId, { reason: trimmed }).then(
@@ -225,6 +232,11 @@ function RejectReasonForm({
     );
   };
 
+  // Submit and "Try again" both send the reason as it is in the field now, so an
+  // edit made after a failure is what gets sent.
+  const submit = (event?: FormEvent<HTMLFormElement>) =>
+    handleSubmit((values) => send(values.reason.trim()))(event);
+
   const reasonError = errors.reason?.message;
   const describedBy = reasonError ? `${ids.error} ${ids.counter}` : ids.counter;
 
@@ -232,7 +244,7 @@ function RejectReasonForm({
     <form
       noValidate
       onSubmit={(event) => {
-        void handleSubmit((values) => send(values.reason.trim()))(event);
+        void submit(event);
       }}
       className="grid gap-4"
     >
@@ -280,7 +292,9 @@ function RejectReasonForm({
                 variant="outline"
                 size="sm"
                 className="mt-2"
-                onClick={() => send(lastSentRef.current)}
+                onClick={() => {
+                  void submit();
+                }}
                 disabled={pending}
               >
                 Try again
@@ -323,11 +337,19 @@ export function RejectTransactionDialog({
   const [open, setOpen] = useState(false);
   const sendingRef = useRef(false);
   const reasonRef = useRef<HTMLTextAreaElement | null>(null);
+  // Set once the back-end has decided, so closing does not refocus the trigger.
+  const decidedRef = useRef(false);
 
   const changeOpen = (next: boolean) => {
     // Locked while the reject is in progress.
     if (sendingRef.current) return;
+    if (next) decidedRef.current = false;
     setOpen(next);
+  };
+
+  const settle = (details: TransactionDetails | null) => {
+    decidedRef.current = true;
+    onSettled(details);
   };
 
   return (
@@ -346,6 +368,9 @@ export function RejectTransactionDialog({
           event.preventDefault();
           reasonRef.current?.focus();
         }}
+        onCloseAutoFocus={(event) => {
+          if (decidedRef.current) event.preventDefault();
+        }}
       >
         <DialogHeader>
           <DialogTitle className="break-all">
@@ -361,7 +386,7 @@ export function RejectTransactionDialog({
           sendingRef={sendingRef}
           reasonRef={reasonRef}
           onClose={() => changeOpen(false)}
-          onSettled={onSettled}
+          onSettled={settle}
         />
       </DialogContent>
     </Dialog>

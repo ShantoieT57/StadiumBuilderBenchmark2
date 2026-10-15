@@ -331,5 +331,12 @@ describe('Epic approve-and-reject, Story 1: approve a transaction', () => {
     expect(
       within(tableRow(reference)).queryByRole('button', { name: anyDecision }),
     ).not.toBeInTheDocument();
+
+    // The row's Approve has gone, so focus moves to the row's details link.
+    await waitFor(() => {
+      expect(
+        within(tableRow(reference)).getByRole('link', { name: reference }),
+      ).toHaveFocus();
+    });
   });
 });

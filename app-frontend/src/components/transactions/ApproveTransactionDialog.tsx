@@ -12,6 +12,8 @@
  * - 200: closes, "<reference> approved." success message, `onSettled(details)`.
  * - 409 (someone got there first): closes, persistent problem with the back-end's
  *   message and the current status, `onSettled(current details or null)`.
+ * - After a decision (200 or 409) focus is left to the list (the row leaves
+ *   Imported, so the trigger goes); Cancel / Escape still return it to the trigger.
  * - Other failures keep the dialog open with an inline problem and "Try again"
  *   (403 shows the server's message).
  * Messages name only the reference and status; nothing is logged.
@@ -93,12 +95,20 @@ export function ApproveTransactionDialog({
   const [problem, setProblem] = useState<string | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const sendingRef = useRef(false);
+  // Set once the back-end has decided, so closing does not refocus the trigger.
+  const decidedRef = useRef(false);
 
   const changeOpen = (next: boolean) => {
     // Locked while the approve is in progress.
     if (sendingRef.current) return;
+    if (next) decidedRef.current = false;
     setOpen(next);
     if (!next) setProblem(null);
+  };
+
+  const settle = (details: TransactionDetails | null) => {
+    decidedRef.current = true;
+    onSettled(details);
   };
 
   const send = () => {
@@ -115,7 +125,7 @@ export function ApproveTransactionDialog({
           variant: 'success',
           title: transactionApprovedMessage(details.reference),
         });
-        onSettled(details);
+        settle(details);
       },
       (error: unknown) => {
         sendingRef.current = false;
@@ -125,7 +135,7 @@ export function ApproveTransactionDialog({
         if (conflict) {
           setOpen(false);
           showToast(decisionConflictToast(conflict));
-          onSettled(conflict.transaction);
+          settle(conflict.transaction);
           return;
         }
         setProblem(inlineProblemOf(error));
@@ -153,6 +163,9 @@ export function ApproveTransactionDialog({
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           cancelRef.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          if (decidedRef.current) event.preventDefault();
         }}
       >
         <AlertDialogHeader>
