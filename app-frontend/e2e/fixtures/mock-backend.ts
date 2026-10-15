@@ -111,6 +111,58 @@
  * are unchanged. Answers made through `respondFor` inside a spec's `page.route()`
  * are remembered in the spec worker, not in this server.
  *
+ * Corrections and cancelling (epic file-correction-and-cancel). Rows, rules and
+ * wording come from src/mocks/data/invalidRows.ts; cancel wording/shape from files.ts.
+ * All four need an ACTIVE session (else 401) and the Importer role (Approver -> 403
+ * `forbiddenBody()`). JSON bodies are passed as the 5th `respondFor` argument.
+ *   - GET files/{id}/invalid-rows   404 unknown file; 409 NOT_WAITING_FOR_CORRECTIONS_MESSAGE
+ *                                   unless the file is Failed + InvalidRows + not cancelled;
+ *                                   else 200 InvalidRowList (seeded: 06 -> 2 rows, 11 -> 3 rows).
+ *   - PATCH files/{id}/invalid-rows {rows}      save values, keep reasons -> 200 InvalidRowList.
+ *   - POST files/{id}/recheck {corrections}     save, then re-run the row rules over ALL
+ *                                   rows of the file (`checkFileAgain`): every row passes ->
+ *                                   200 {status: Completed, file, invalidRows: {0, []}}, the
+ *                                   file Completed with loaded/skipped/ignored counts, its rows
+ *                                   loaded as Imported transactions (GET transactions + summary
+ *                                   include them) and history + ConvertTypes, CheckRows, Load;
+ *                                   invalid-rows then answers 409. Otherwise 200 {status: Failed,
+ *                                   file (reason "File has N invalid row(s)", new open
+ *                                   WaitForCorrections), invalidRows (rows still failing)}.
+ *     PATCH / recheck checks, in the back-end's order (first failure decides):
+ *       1. body: unreadable JSON -> 400 ValidationProblem `$`; `rows` / `corrections` missing ->
+ *          errors.rows|corrections; PATCH with [] -> errors.rows; per item a missing (or null)
+ *          value -> errors["rows[i].<field>"] / ["corrections[i].<field>"] =
+ *          ["The <Field> field is required."]; a non-string value or non-UUID id -> that key
+ *       2. a row id given twice -> 400 {message: ROW_REPEATED_MESSAGE}
+ *       3. unknown file -> 404; not waiting -> 409 NOT_WAITING_FOR_CORRECTIONS_MESSAGE
+ *       4. an id that is not a CURRENTLY invalid row of this file -> 400
+ *          {message: NOT_AN_INVALID_ROW_MESSAGE}
+ *     Values are never refused with 400 (a bad value just stays invalid on re-check); to
+ *     exercise a field-keyed 400 under a row field, fulfil that one call with `page.route()`.
+ *   - POST files/{id}/cancel        404 unknown; already cancelled -> 200 the same details
+ *                                   (original time and person); Approved transactions ->
+ *                                   409 {message: cannotCancelMessage(n)} (april-batch-1: 6,
+ *                                   april-batch-2: 4); else 200 `cancelledFileDetails()` (now,
+ *                                   by "File Importer"): counts 0, canDownload false, open
+ *                                   WaitForCorrections finished, Cancelled stage appended.
+ *                                   Afterwards content -> 410, invalid-rows -> 409, hidden from
+ *                                   the Active list, out of the summary.
+ *
+ * Per-test isolation of changes (`mock-run` cookie, MOCK_RUN_COOKIE):
+ *   Changes made by PATCH invalid-rows, POST recheck and POST cancel are kept ONLY for
+ *   requests carrying the same `mock-run` cookie value (state is keyed by run value +
+ *   dataset), and every read (GET files, files/{id}, content, invalid-rows, transactions,
+ *   dashboard/summary) sees that run's changes. Give EACH test its own value, e.g.
+ *     await context.addCookies([{ name: MOCK_RUN_COOKIE,
+ *       value: mockRunValue(testInfo), url: baseURL }]);
+ *   (`mockRunValue` = testId + retry, so retries start clean.) Without the cookie a
+ *   change is answered correctly but NOT kept (the next request sees the seeded data),
+ *   so specs that never set it - and every epic 1-4 spec - stay parallel-safe.
+ *   `POST /__mock/reset` (direct to this server, not via /api) clears the run named by
+ *   its `mock-run` cookie or `?run=`; unique values per test make it unnecessary.
+ *   Answers made through `respondFor` inside a spec worker keep their runs in that worker.
+ *   Live `file-changed` events are NOT emitted (specs stub `/api/events`).
+ *
  * Every other request -> 401 `unauthenticatedBody('NotSignedIn')`.
  *
  * Bodies come from the project-wide mock-data sources (never inlined here).
@@ -125,6 +177,7 @@ import type {
   FileSortColumn,
   FileStatus,
   FileVisibility,
+  RowCorrection,
   SortDirection,
   TransactionDetails,
   TransactionSortColumn,
@@ -137,6 +190,9 @@ import { summarizeFiles } from '../../src/mocks/data/dashboardSummary';
 import {
   FILE_CONTENT_DISCARDED_MESSAGE,
   FILE_NOT_FOUND_MESSAGE,
+  SEEDED_UPLOADER,
+  cancelledFileDetails,
+  cannotCancelMessage,
   contentDispositionFor,
   fileContentFor,
   filePageOf,
@@ -150,6 +206,20 @@ import {
   userInfoFor,
 } from '../../src/mocks/data/identity';
 import {
+  NOT_AN_INVALID_ROW_MESSAGE,
+  NOT_WAITING_FOR_CORRECTIONS_MESSAGE,
+  ROW_FIELDS,
+  ROW_REPEATED_MESSAGE,
+  checkFileAgain,
+  fieldRequiredMessage,
+  invalidRowListOf,
+  parseRowAmount,
+  parseRowDate,
+  seededFileRows,
+  type MockFileRow,
+} from '../../src/mocks/data/invalidRows';
+import {
+  createTransactionDetails,
   pageOf,
   seedTransactionDetails,
   toListItem,
@@ -283,7 +353,7 @@ export interface MockResponse {
   dropConnection?: boolean;
 }
 
-/** The raw request of a POST files call, for `respondFor`. */
+/** The raw request (Content-Type + body) of a call with a body, for `respondFor`. */
 export interface UploadRequest {
   /** The request's Content-Type header (with its boundary). */
   contentType: string | null | undefined;
@@ -321,6 +391,99 @@ function filesFor(dataset: MockDataset): FileDetails[] {
   return dataset === 'many'
     ? seedManyFileDetails()
     : seedDashboardFileDetails();
+}
+
+// ---------------------------------------------------------------------------
+// Per-test run state (`mock-run` cookie, see header)
+// ---------------------------------------------------------------------------
+
+/** Cookie that names the per-test run whose changes the mock keeps (see header). */
+export const MOCK_RUN_COOKIE = 'mock-run';
+
+/** A `mock-run` cookie value unique to one test attempt (testId + retry). */
+export function mockRunValue(testInfo: {
+  testId: string;
+  retry: number;
+}): string {
+  return `${testInfo.testId}-r${testInfo.retry}`.replace(
+    /[^A-Za-z0-9_-]/g,
+    '_',
+  );
+}
+
+/** The changes one run has made over its dataset. */
+interface RunState {
+  /** Changed file details by lower-case id (supersede the dataset / uploaded files). */
+  files: Map<string, FileDetails>;
+  /** Every row of a file waiting for corrections, once changed, by lower-case file id. */
+  rows: Map<string, MockFileRow[]>;
+  /** Transactions loaded by a re-check. */
+  transactions: TransactionDetails[];
+}
+
+const runs = new Map<string, RunState>();
+
+function newRunState(): RunState {
+  return { files: new Map(), rows: new Map(), transactions: [] };
+}
+
+/** The `mock-run` cookie value of a `Cookie` header, or null. */
+export function mockRunFromCookie(
+  cookieHeader: string | null | undefined,
+): string | null {
+  const value = cookieValue(cookieHeader, MOCK_RUN_COOKIE);
+  return value ? value : null;
+}
+
+/**
+ * The run state for a request: the kept state of its `mock-run` run over `dataset`,
+ * or a fresh throw-away state when it carries no `mock-run` cookie.
+ */
+function runStateFor(
+  cookieHeader: string | null | undefined,
+  dataset: MockDataset,
+): RunState {
+  const run = mockRunFromCookie(cookieHeader);
+  if (!run) return newRunState();
+  const key = `${dataset}:${run}`;
+  let state = runs.get(key);
+  if (!state) {
+    state = newRunState();
+    runs.set(key, state);
+  }
+  return state;
+}
+
+/** Forgets every change of run `run` (all datasets). Returns how many states were dropped. */
+export function resetMockRun(run: string): number {
+  let dropped = 0;
+  for (const key of [...runs.keys()]) {
+    if (key.slice(key.indexOf(':') + 1) === run) {
+      runs.delete(key);
+      dropped += 1;
+    }
+  }
+  return dropped;
+}
+
+/** The dataset's files with this run's changes applied. */
+function currentFiles(dataset: MockDataset, state: RunState): FileDetails[] {
+  return filesFor(dataset).map((f) => state.files.get(f.id.toLowerCase()) ?? f);
+}
+
+/** The dataset's transactions plus this run's loaded ones, without those of cancelled files. */
+function currentTransactions(
+  dataset: MockDataset,
+  state: RunState,
+): TransactionDetails[] {
+  const cancelled = new Set(
+    [...state.files.values()]
+      .filter((f) => f.isCancelled)
+      .map((f) => f.id.toLowerCase()),
+  );
+  return [...transactionsFor(dataset), ...state.transactions].filter(
+    (t) => !cancelled.has(t.file.id.toLowerCase()),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -410,10 +573,10 @@ function validationProblem(errors: Record<string, string[]>): MockResponse {
   return json(400, body);
 }
 
-/** GET /transactions over `dataset` with query `params`. */
+/** GET /transactions over `all` (the dataset with the run's changes) with query `params`. */
 function listTransactions(
   params: URLSearchParams,
-  dataset: MockDataset,
+  all: TransactionDetails[],
 ): MockResponse {
   const errors: Record<string, string[]> = {};
   const fail = (name: string, message: string): void => {
@@ -501,7 +664,6 @@ function listTransactions(
   }
 
   const search = (params.get('search') ?? '').trim().toLowerCase();
-  const all = transactionsFor(dataset);
 
   const matching = all.filter(
     (t) =>
@@ -534,11 +696,12 @@ function listTransactions(
   );
 }
 
-/** GET /transactions/{id} over `dataset`. */
-function transactionDetails(id: string, dataset: MockDataset): MockResponse {
-  const found = transactionsFor(dataset).find(
-    (t) => t.id.toLowerCase() === id.toLowerCase(),
-  );
+/** GET /transactions/{id} over `all`. */
+function transactionDetails(
+  id: string,
+  all: TransactionDetails[],
+): MockResponse {
+  const found = all.find((t) => t.id.toLowerCase() === id.toLowerCase());
   return found
     ? json(200, found)
     : json(404, { message: 'Transaction not found' });
@@ -608,10 +771,10 @@ function compareNullable(
   return compareKeys(a, b);
 }
 
-/** GET /files over `dataset` with query `params`. */
+/** GET /files over `files` (the dataset with the run's changes) with query `params`. */
 function listFiles(
   params: URLSearchParams,
-  dataset: MockDataset,
+  files: FileDetails[],
 ): MockResponse {
   const errors: Record<string, string[]> = {};
   const fail = (name: string, message: string): void => {
@@ -682,7 +845,7 @@ function listFiles(
   // Matched literally, ignoring case (the back-end does not trim it either).
   const nameFilter = (params.get('fileName') ?? '').toLowerCase();
 
-  const matching = filesFor(dataset).filter((f) => {
+  const matching = files.filter((f) => {
     const processed =
       f.lastProcessedAt === null ? null : Date.parse(f.lastProcessedAt);
     return (
@@ -707,25 +870,39 @@ function listFiles(
   return json(200, filePageOf(sorted.map(toFileListItem), { page, pageSize }));
 }
 
-/** The file with `id` in `dataset`, or undefined. */
-function findFile(id: string, dataset: MockDataset): FileDetails | undefined {
+/** The file with `id` in `dataset` (or uploaded), with the run's changes, or undefined. */
+function findFile(
+  id: string,
+  dataset: MockDataset,
+  state: RunState,
+): FileDetails | undefined {
+  const key = id.toLowerCase();
   return (
-    filesFor(dataset).find((f) => f.id.toLowerCase() === id.toLowerCase()) ??
-    uploadedFiles.get(id.toLowerCase())
+    state.files.get(key) ??
+    filesFor(dataset).find((f) => f.id.toLowerCase() === key) ??
+    uploadedFiles.get(key)
   );
 }
 
-/** GET /files/{id} over `dataset`. */
-function fileDetails(id: string, dataset: MockDataset): MockResponse {
-  const found = findFile(id, dataset);
+/** GET /files/{id} over `dataset` + run state. */
+function fileDetails(
+  id: string,
+  dataset: MockDataset,
+  state: RunState,
+): MockResponse {
+  const found = findFile(id, dataset, state);
   return found
     ? json(200, found)
     : json(404, { message: FILE_NOT_FOUND_MESSAGE });
 }
 
-/** GET /files/{id}/content over `dataset`: the original CSV, 410 once cancelled. */
-function fileContent(id: string, dataset: MockDataset): MockResponse {
-  const found = findFile(id, dataset);
+/** GET /files/{id}/content over `dataset` + run state: the original CSV, 410 once cancelled. */
+function fileContent(
+  id: string,
+  dataset: MockDataset,
+  state: RunState,
+): MockResponse {
+  const found = findFile(id, dataset, state);
   if (!found) return json(404, { message: FILE_NOT_FOUND_MESSAGE });
   if (!found.canDownload) {
     return json(410, { message: FILE_CONTENT_DISCARDED_MESSAGE });
@@ -935,6 +1112,247 @@ function uploadFile(upload: UploadRequest | undefined): MockResponse {
   return json(201, uploaded);
 }
 
+// ---------------------------------------------------------------------------
+// Corrections (invalid-rows, recheck) and cancelling
+// ---------------------------------------------------------------------------
+
+/** True when `file` is waiting for corrections (Failed because of invalid rows, not cancelled). */
+function isWaitingForCorrections(file: FileDetails): boolean {
+  return (
+    file.status === 'Failed' &&
+    file.failureKind === 'InvalidRows' &&
+    !file.isCancelled
+  );
+}
+
+/** Every row of file `id` as this run has it (seeded rows until changed). */
+function rowsFor(id: string, state: RunState): MockFileRow[] {
+  return state.rows.get(id.toLowerCase()) ?? seededFileRows(id);
+}
+
+/** The request body as JSON, or undefined when it cannot be read. */
+function jsonBody(raw: UploadRequest | undefined): unknown {
+  const text = Buffer.from(raw?.body ?? new Uint8Array()).toString('utf8');
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The corrections in body member `member` (`rows` | `corrections`), or the 400
+ * ValidationProblem the back-end's model validation would answer (see header).
+ */
+function readCorrections(
+  raw: UploadRequest | undefined,
+  member: 'rows' | 'corrections',
+  requireOne: boolean,
+): RowCorrection[] | MockResponse {
+  const body = jsonBody(raw);
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return validationProblem({
+      $: ['The request body could not be read as JSON.'],
+    });
+  }
+  const list = (body as Record<string, unknown>)[member];
+  if (list === undefined || list === null) {
+    return validationProblem({ [member]: [fieldRequiredMessage(member)] });
+  }
+  if (!Array.isArray(list)) {
+    return validationProblem({
+      [member]: [`The value of ${member} must be an array of rows.`],
+    });
+  }
+  if (requireOne && list.length === 0) {
+    const name = fieldRequiredMessage(member).split(' ')[1];
+    return validationProblem({
+      [member]: [
+        `The field ${name} must be a string or array type with a minimum length of '1'.`,
+      ],
+    });
+  }
+  const errors: Record<string, string[]> = {};
+  list.forEach((item: unknown, i: number) => {
+    const prefix = `${member}[${i}]`;
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      errors[prefix] = ['The value must be a row correction object.'];
+      return;
+    }
+    const values = item as Record<string, unknown>;
+    for (const field of ['id', ...ROW_FIELDS]) {
+      const value = values[field];
+      if (value === undefined || value === null) {
+        errors[`${prefix}.${field}`] = [fieldRequiredMessage(field)];
+      } else if (typeof value !== 'string') {
+        errors[`${prefix}.${field}`] = [
+          'The JSON value could not be converted to System.String.',
+        ];
+      } else if (field === 'id' && !UUID_PATTERN.test(value)) {
+        errors[`${prefix}.${field}`] = [
+          'The JSON value could not be converted to System.Guid.',
+        ];
+      }
+    }
+  });
+  if (Object.keys(errors).length > 0) return validationProblem(errors);
+  return list as RowCorrection[];
+}
+
+/**
+ * The checks PATCH invalid-rows and POST recheck share, after the body is read:
+ * repeated row -> 400, unknown file -> 404, not waiting -> 409, not a currently
+ * invalid row -> 400. Returns the waiting file and its rows, or the refusal.
+ */
+function startCorrection(
+  id: string,
+  corrections: RowCorrection[],
+  dataset: MockDataset,
+  state: RunState,
+): { file: FileDetails; rows: MockFileRow[] } | MockResponse {
+  const ids = corrections.map((c) => c.id.toLowerCase());
+  if (new Set(ids).size !== ids.length) {
+    return json(400, { message: ROW_REPEATED_MESSAGE });
+  }
+  const file = findFile(id, dataset, state);
+  if (!file) return json(404, { message: FILE_NOT_FOUND_MESSAGE });
+  if (!isWaitingForCorrections(file)) {
+    return json(409, { message: NOT_WAITING_FOR_CORRECTIONS_MESSAGE });
+  }
+  const rows = rowsFor(id, state);
+  const invalid = new Set(
+    rows.filter((r) => r.reasons.length > 0).map((r) => r.id.toLowerCase()),
+  );
+  if (ids.some((rowId) => !invalid.has(rowId))) {
+    return json(400, { message: NOT_AN_INVALID_ROW_MESSAGE });
+  }
+  return { file, rows };
+}
+
+function isResponse(value: object): value is MockResponse {
+  return 'status' in value && 'body' in value && 'headers' in value;
+}
+
+/** GET /files/{id}/invalid-rows. */
+function listInvalidRows(
+  id: string,
+  dataset: MockDataset,
+  state: RunState,
+): MockResponse {
+  const file = findFile(id, dataset, state);
+  if (!file) return json(404, { message: FILE_NOT_FOUND_MESSAGE });
+  if (!isWaitingForCorrections(file)) {
+    return json(409, { message: NOT_WAITING_FOR_CORRECTIONS_MESSAGE });
+  }
+  return json(200, invalidRowListOf(rowsFor(id, state)));
+}
+
+/** PATCH /files/{id}/invalid-rows: save the values, keep the reasons. */
+function saveCorrections(
+  id: string,
+  raw: UploadRequest | undefined,
+  dataset: MockDataset,
+  state: RunState,
+): MockResponse {
+  const corrections = readCorrections(raw, 'rows', true);
+  if (!Array.isArray(corrections)) return corrections;
+  const started = startCorrection(id, corrections, dataset, state);
+  if (isResponse(started)) return started;
+  const byId = new Map(corrections.map((c) => [c.id.toLowerCase(), c]));
+  const saved = started.rows.map((row) => {
+    const c = byId.get(row.id.toLowerCase());
+    if (!c) return row;
+    return {
+      ...row,
+      reference: c.reference,
+      transactionDate: c.transactionDate,
+      accountNumber: c.accountNumber,
+      description: c.description,
+      amount: c.amount,
+      transactionType: c.transactionType,
+      currency: c.currency,
+    };
+  });
+  state.rows.set(id.toLowerCase(), saved);
+  return json(200, invalidRowListOf(saved));
+}
+
+/** POST /files/{id}/recheck: save the corrections and check every row again. */
+function recheckFile(
+  id: string,
+  raw: UploadRequest | undefined,
+  dataset: MockDataset,
+  state: RunState,
+): MockResponse {
+  const corrections = readCorrections(raw, 'corrections', false);
+  if (!Array.isArray(corrections)) return corrections;
+  const started = startCorrection(id, corrections, dataset, state);
+  if (isResponse(started)) return started;
+  const now = new Date().toISOString();
+  const existingReferences = new Set(
+    currentTransactions(dataset, state).map((t) =>
+      t.reference.trim().toLowerCase(),
+    ),
+  );
+  const outcome = checkFileAgain(started.file, started.rows, corrections, {
+    now,
+    existingReferences,
+  });
+  const key = id.toLowerCase();
+  state.rows.set(key, outcome.rows);
+  state.files.set(key, outcome.result.file);
+  const file = outcome.result.file;
+  const fileNo = key.slice(-2);
+  outcome.loadedRows.forEach((row) => {
+    const rowNo = String(row.rowNumber).padStart(2, '0');
+    state.transactions.push(
+      createTransactionDetails({
+        id: `5d0c9b10-0000-4000-8000-1${fileNo}0000000${rowNo}`,
+        reference: row.reference.trim(),
+        transactionDate: parseRowDate(row.transactionDate) ?? now,
+        accountNumber: row.accountNumber.trim(),
+        description: row.description.trim(),
+        amount: parseRowAmount(row.amount) ?? 0,
+        currency: row.currency.trim(),
+        transactionType:
+          row.transactionType.trim() === 'D' ? 'Debit' : 'Credit',
+        status: 'Imported',
+        file: { id: file.id, fileName: file.fileName },
+        createdBy: 'System',
+        createdAt: now,
+        lastChangedBy: 'System',
+        lastChangedAt: now,
+        rejectionReason: null,
+      }),
+    );
+  });
+  return json(200, outcome.result);
+}
+
+/** POST /files/{id}/cancel. */
+function cancelFile(
+  id: string,
+  dataset: MockDataset,
+  state: RunState,
+): MockResponse {
+  const file = findFile(id, dataset, state);
+  if (!file) return json(404, { message: FILE_NOT_FOUND_MESSAGE });
+  if (file.isCancelled) return json(200, file);
+  if (file.transactions.approved > 0) {
+    return json(409, {
+      message: cannotCancelMessage(file.transactions.approved),
+    });
+  }
+  const cancelled = cancelledFileDetails(file, {
+    now: new Date().toISOString(),
+    cancelledBy: SEEDED_UPLOADER,
+  });
+  state.files.set(id.toLowerCase(), cancelled);
+  return json(200, cancelled);
+}
+
+const FILE_ACTION_PATH = /^\/files\/([^/]+)\/(invalid-rows|recheck|cancel)$/;
+
 const TRANSACTION_ID_PATH = /^\/transactions\/([^/]+)$/;
 const FILE_ID_PATH = /^\/files\/([^/]+)(\/content)?$/;
 
@@ -945,7 +1363,9 @@ const FILE_ID_PATH = /^\/files\/([^/]+)(\/content)?$/;
  * handlers too, so browser-side and server-side mocks agree.
  *
  * POST /files needs `upload` (its Content-Type and raw body); without it the call
- * is treated as having no Content-Type (415). When the answer has
+ * is treated as having no Content-Type (415). PATCH files/{id}/invalid-rows and POST
+ * files/{id}/recheck read their JSON body from the same argument (e.g.
+ * `{ contentType: 'application/json', body: route.request().postDataBuffer() }`). When the answer has
  * `dropConnection: true`, drop the connection instead of answering.
  */
 export function respondFor(
@@ -960,6 +1380,37 @@ export function respondFor(
     if (!role) return unauthenticated(cookieHeader);
     if (role !== 'Importer') return json(403, forbiddenBody());
     return uploadFile(upload);
+  }
+  if (method === 'POST' && path === '/__mock/reset') {
+    const params =
+      typeof query === 'string' ? new URLSearchParams(query) : query;
+    const run = params.get('run') || mockRunFromCookie(cookieHeader);
+    if (!run) {
+      return json(400, { message: 'Name the run: mock-run cookie or ?run=.' });
+    }
+    return json(200, { run, dropped: resetMockRun(run) });
+  }
+  const action = FILE_ACTION_PATH.exec(path);
+  if (action && UUID_PATTERN.test(action[1])) {
+    const [, fileId, operation] = action;
+    const allowed =
+      operation === 'invalid-rows'
+        ? method === 'GET' || method === 'PATCH'
+        : method === 'POST';
+    if (allowed) {
+      const role = roleFromCookie(cookieHeader);
+      if (!role) return unauthenticated(cookieHeader);
+      if (role !== 'Importer') return json(403, forbiddenBody());
+      const dataset = datasetFromCookie(cookieHeader);
+      const state = runStateFor(cookieHeader, dataset);
+      if (operation === 'cancel') return cancelFile(fileId, dataset, state);
+      if (operation === 'recheck') {
+        return recheckFile(fileId, upload, dataset, state);
+      }
+      return method === 'GET'
+        ? listInvalidRows(fileId, dataset, state)
+        : saveCorrections(fileId, upload, dataset, state);
+    }
   }
   if (method === 'POST' && path === '/auth/sign-out') {
     return {
@@ -991,17 +1442,27 @@ export function respondFor(
     ) {
       if (!roleFromCookie(cookieHeader)) return unauthenticated(cookieHeader);
       const dataset = datasetFromCookie(cookieHeader);
-      if (path === '/transactions') return listTransactions(params, dataset);
-      if (path === '/files') return listFiles(params, dataset);
+      const state = runStateFor(cookieHeader, dataset);
+      if (path === '/transactions') {
+        return listTransactions(params, currentTransactions(dataset, state));
+      }
+      if (path === '/files') {
+        return listFiles(params, currentFiles(dataset, state));
+      }
       if (path === '/dashboard/summary') {
-        return json(200, summarizeFiles(filesFor(dataset)));
+        return json(200, summarizeFiles(currentFiles(dataset, state)));
       }
       if (fileMatch) {
         return fileMatch[2]
-          ? fileContent(fileMatch[1], dataset)
-          : fileDetails(fileMatch[1], dataset);
+          ? fileContent(fileMatch[1], dataset, state)
+          : fileDetails(fileMatch[1], dataset, state);
       }
-      if (idMatch) return transactionDetails(idMatch[1], dataset);
+      if (idMatch) {
+        return transactionDetails(
+          idMatch[1],
+          currentTransactions(dataset, state),
+        );
+      }
     }
   }
 

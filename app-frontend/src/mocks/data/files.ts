@@ -522,6 +522,54 @@ export function filePageOf(
 }
 
 // ---------------------------------------------------------------------------
+// Cancelling (POST /files/{id}/cancel)
+// ---------------------------------------------------------------------------
+
+/**
+ * The exact 409 message of POST /files/{id}/cancel for a file with `approvedCount`
+ * Approved transactions ("... 1 of its transactions has been approved." /
+ * "... 6 of its transactions have been approved.").
+ */
+export function cannotCancelMessage(approvedCount: number): string {
+  return approvedCount === 1
+    ? 'This file cannot be cancelled because 1 of its transactions has been approved.'
+    : `This file cannot be cancelled because ${approvedCount} of its transactions have been approved.`;
+}
+
+/**
+ * `file` as POST /files/{id}/cancel leaves it (FileDetails): an already-cancelled
+ * file is returned unchanged (original time and person); otherwise it is marked
+ * cancelled at `now` by `cancelledBy`, keeps its status, loses its transactions
+ * (counts 0) and its original (canDownload false), any open WaitForCorrections stage
+ * is finished at `now` and a Cancelled stage is appended. Does NOT check for
+ * Approved transactions - callers refuse those first with `cannotCancelMessage`.
+ */
+export function cancelledFileDetails(
+  file: FileDetails,
+  options: { now: string; cancelledBy?: string },
+): FileDetails {
+  if (file.isCancelled) return { ...file };
+  const { now } = options;
+  return {
+    ...file,
+    isCancelled: true,
+    cancelledAt: now,
+    cancelledBy: options.cancelledBy ?? SEEDED_UPLOADER,
+    transactions: { ...NO_TRANSACTIONS },
+    isFullyReviewed: false,
+    canDownload: false,
+    processingHistory: [
+      ...file.processingHistory.map((entry) =>
+        entry.stage === 'WaitForCorrections' && entry.finishedAt === null
+          ? { ...entry, finishedAt: now }
+          : { ...entry },
+      ),
+      { stage: 'Cancelled', startedAt: now, finishedAt: now },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Original file content (GET /files/{id}/content)
 // ---------------------------------------------------------------------------
 

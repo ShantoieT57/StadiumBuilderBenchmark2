@@ -119,6 +119,11 @@ export function fileDetailsHref(id: string): string {
   return `/dashboard/files/${encodeURIComponent(id)}`;
 }
 
+/** The correction screen for a file waiting for corrections. */
+export function correctionsHref(id: string): string {
+  return `${fileDetailsHref(id)}/corrections`;
+}
+
 function SortIcon({
   active,
   ascending,

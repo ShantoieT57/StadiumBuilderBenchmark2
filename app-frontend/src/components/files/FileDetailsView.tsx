@@ -4,7 +4,8 @@
  * File details (R7, R9-R12, R16-R18).
  *
  * - Header: file name, status in words, who uploaded it and when, last processed,
- *   and a reserved actions area (empty in this epic).
+ *   and an actions area: "Correct invalid rows" for an Importer on a file waiting
+ *   for corrections.
  * - Row summary: total / loaded / skipped / ignored, shown exactly as returned (BR5).
  * - Transaction counts link to the Transactions list for this file and status.
  * - "This file is fully reviewed" follows `isFullyReviewed` only, never the counts (BR6).
@@ -23,7 +24,7 @@
  */
 
 import Link from 'next/link';
-import { ArrowLeftIcon, DownloadIcon } from 'lucide-react';
+import { ArrowLeftIcon, DownloadIcon, PencilIcon } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -35,6 +36,7 @@ import {
 } from 'react';
 
 import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
+import { correctionsHref } from '@/components/files/FilesList';
 import {
   FileCancelledBadge,
   FileStatusBadge,
@@ -81,6 +83,7 @@ import type {
   FileDetails,
   ProcessingStageEntry,
   TransactionStatus,
+  UserRole,
 } from '@/types/api-generated';
 
 export const LOADING_FILE_MESSAGE = 'Loading file';
@@ -183,7 +186,17 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function FileHeader({ file }: { file: FileDetails }) {
+/** True when the file is waiting for an importer to correct its invalid rows. */
+export function isWaitingForCorrections(file: FileDetails): boolean {
+  return (
+    file.status === 'Failed' &&
+    file.failureKind === 'InvalidRows' &&
+    !file.isCancelled
+  );
+}
+
+function FileHeader({ file, role }: { file: FileDetails; role: UserRole }) {
+  const canCorrect = role === 'Importer' && isWaitingForCorrections(file);
   return (
     <header className="flex min-w-0 flex-col gap-3">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -194,9 +207,17 @@ function FileHeader({ file }: { file: FileDetails }) {
             {file.isCancelled && <FileCancelledBadge />}
           </div>
         </div>
-        {/* Header actions area: reserved for the importer's Cancel and Correct
-            actions (a later epic). Empty for both roles in this epic. */}
-        <div className="flex flex-wrap gap-2" data-slot="file-actions" />
+        {/* Header actions area: the importer's file actions (hidden, never disabled). */}
+        <div className="flex flex-wrap gap-2" data-slot="file-actions">
+          {canCorrect && (
+            <Button asChild>
+              <Link href={correctionsHref(file.id)}>
+                <PencilIcon aria-hidden="true" />
+                Correct invalid rows
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
       <dl className="flex min-w-0 flex-col gap-2 text-sm">
         <Field label="Uploaded by">{file.uploadedBy}</Field>
@@ -383,10 +404,16 @@ function DownloadOriginal({ file }: { file: FileDetails }) {
   );
 }
 
-function FileDetailsContent({ file }: { file: FileDetails }) {
+function FileDetailsContent({
+  file,
+  role,
+}: {
+  file: FileDetails;
+  role: UserRole;
+}) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <FileHeader file={file} />
+      <FileHeader file={file} role={role} />
       {file.status === 'Failed' && (
         <FailureReason reason={file.failureReason} />
       )}
@@ -401,7 +428,13 @@ function FileDetailsContent({ file }: { file: FileDetails }) {
   );
 }
 
-export function FileDetailsView({ fileId }: { fileId: string }) {
+export function FileDetailsView({
+  fileId,
+  role,
+}: {
+  fileId: string;
+  role: UserRole;
+}) {
   // The last details received; only shown while they are for this file.
   const [loaded, setLoaded] = useState<{
     fileId: string;
@@ -510,7 +543,7 @@ export function FileDetailsView({ fileId }: { fileId: string }) {
     content = (
       <>
         {failure !== null && <RefreshFailedNotice onRetry={retry} />}
-        <FileDetailsContent file={file} />
+        <FileDetailsContent file={file} role={role} />
       </>
     );
   }

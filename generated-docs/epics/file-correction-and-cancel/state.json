@@ -9,23 +9,26 @@
       "file-upload"
     ],
     "introducesSharedSurface": false,
-    "unverifiedAssumptions": [],
+    "unverifiedAssumptions": [
+      "Changing a row so it breaks a rule blocks \"Check again\" until fixed; untouched rows never block it. Right behaviour?",
+      "\"Save changes\" with nothing changed shows a short \"No changes to save.\" message instead of being greyed out. OK?"
+    ],
     "manualTestResults": []
   },
   "phase": "BUILD",
   "stories": {
     "1": {
-      "status": "pending",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
-      "completedAt": null
+      "startedAt": "2026-10-15T13:13:14.956Z",
+      "completedAt": "2026-10-15T13:22:16.955Z"
     },
     "2": {
-      "status": "pending",
+      "status": "in-progress",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
+      "startedAt": "2026-10-15T13:22:16.956Z",
       "completedAt": null
     },
     "3": {
@@ -37,5 +40,5 @@
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T12:50:40.545Z"
+  "lastUpdated": "2026-10-15T13:22:16.956Z"
 }
