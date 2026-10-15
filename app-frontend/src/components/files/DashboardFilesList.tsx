@@ -1,0 +1,44 @@
+'use client';
+
+/**
+ * The Dashboard's file list with the per-row actions for the signed-in role.
+ * A server page cannot hand a function (`rowActions`) to the client `FilesList`,
+ * so this client wrapper decides the actions from the role it is given.
+ *
+ * Importer: a "Correct" shortcut (accessible name "Correct <file name>") on each
+ * file waiting for corrections - Failed because of invalid rows and not
+ * cancelled. Nothing for any other file, and nothing at all for an Approver
+ * (hidden, never disabled).
+ */
+
+import Link from 'next/link';
+
+import {
+  FilesList,
+  correctionsHref,
+  type FileRowActions,
+} from '@/components/files/FilesList';
+import { Button } from '@/components/ui/button';
+import { isWaitingForCorrections } from '@/lib/format/file';
+import type { UserRole } from '@/types/api-generated';
+
+const importerRowActions: FileRowActions = (file) =>
+  isWaitingForCorrections(file) ? (
+    <Button asChild variant="outline" size="sm">
+      <Link
+        href={correctionsHref(file.id)}
+        aria-label={`Correct ${file.fileName}`}
+      >
+        Correct
+      </Link>
+    </Button>
+  ) : null;
+
+export function DashboardFilesList({ role }: { role: UserRole }) {
+  return (
+    <FilesList
+      role={role}
+      rowActions={role === 'Importer' ? importerRowActions : undefined}
+    />
+  );
+}

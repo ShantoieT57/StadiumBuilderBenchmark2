@@ -8,6 +8,12 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
+    // The integration suites render whole screens (Radix, react-hook-form, the
+    // events/toast providers) in jsdom. With one worker per CPU core they starve
+    // each other and individual tests blow the 5 s default under load. Cap the
+    // workers and give each test a realistic budget so the full suite is stable.
+    maxWorkers: '50%',
+    testTimeout: 20_000,
     include: [
       'src/**/__tests__/**/*.[jt]s?(x)',
       'src/**/?(*.)+(test).[jt]s?(x)',

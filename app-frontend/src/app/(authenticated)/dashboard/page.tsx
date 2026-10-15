@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 
 import { DashboardCounts } from '@/components/files/DashboardCounts';
 import { FileFilters } from '@/components/files/FileFilters';
-import { FilesList } from '@/components/files/FilesList';
+import { DashboardFilesList } from '@/components/files/DashboardFilesList';
 import { RouteGuard } from '@/components/shell/RouteGuard';
 import { requireSession } from '@/lib/auth/requireSession';
 
@@ -34,7 +34,7 @@ export default async function DashboardPage() {
               <FileFilters />
             </div>
             <div className="min-w-0 flex-1">
-              <FilesList role={user.role} />
+              <DashboardFilesList role={user.role} />
             </div>
           </div>
         </Suspense>

@@ -62,6 +62,14 @@ vi.mock('@/lib/api/client', async (importOriginal) => ({
   post: vi.fn(),
 }));
 
+// The details page reads the signed-in role on the server (server-only in jsdom).
+vi.mock('@/lib/auth/requireSession', async () => {
+  const identity = await import('@/mocks/data/identity');
+  return {
+    requireSession: vi.fn(async () => identity.userInfoFor('Importer')),
+  };
+});
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: vi.fn(),

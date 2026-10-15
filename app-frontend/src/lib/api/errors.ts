@@ -45,3 +45,14 @@ export function isRedirectingToSignIn(error: unknown): boolean {
 export function statusOf(error: unknown): number | undefined {
   return isAPIError(error) ? error.statusCode : undefined;
 }
+
+/** The back-end's own words for a refusal: the error body's non-blank `message`, if any. */
+export function bodyMessageOf(error: unknown): string | undefined {
+  if (!isAPIError(error)) return undefined;
+  const body = error.body;
+  if (typeof body !== 'object' || body === null) return undefined;
+  const { message } = body as { message?: unknown };
+  return typeof message === 'string' && message.trim() !== ''
+    ? message
+    : undefined;
+}

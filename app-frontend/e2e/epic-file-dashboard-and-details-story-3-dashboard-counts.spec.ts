@@ -108,9 +108,14 @@ function urlParam(page: Page, name: string): string | null {
   return new URL(page.url()).searchParams.get(name);
 }
 
-/** The file names shown in the desktop file table, in display order. */
+/**
+ * The file names shown in the desktop file table, in display order. An Importer
+ * also sees "Correct <file name>" shortcut links, which are not file names.
+ */
 function fileNames(page: Page): Locator {
-  return page.getByRole('table').getByRole('link', { name: /\.csv$/ });
+  return page
+    .getByRole('table')
+    .getByRole('link', { name: /^(?!Correct ).+\.csv$/ });
 }
 
 /** The transaction references shown in the desktop transactions table. */

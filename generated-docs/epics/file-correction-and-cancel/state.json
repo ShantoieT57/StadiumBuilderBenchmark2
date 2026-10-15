@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "epic": {
+    "slug": "file-correction-and-cancel",
+    "name": "Correcting and cancelling files",
+    "createdAt": "2026-10-15T12:50:40.545Z",
+    "dependsOn": [
+      "file-dashboard-and-details",
+      "file-upload"
+    ],
+    "introducesSharedSurface": false,
+    "unverifiedAssumptions": [
+      "Changing a row so it breaks a rule blocks \"Check again\" until fixed; untouched rows never block it. Right behaviour?",
+      "\"Save changes\" with nothing changed shows a short \"No changes to save.\" message instead of being greyed out. OK?",
+      "Not-waiting notice says e.g. \"Its current status is Completed.\" (\"Failed, cancelled\" for a cancelled file). Wording OK?",
+      "A refused cancel shows a problem headed \"The file could not be cancelled\" with the server explanation underneath. Wording OK?"
+    ],
+    "manualTestResults": [
+      {
+        "by": "Claude (delegated by user; automated browser walkthrough against the real back-end)",
+        "date": "2026-10-15T13:55:33.410Z",
+        "passed": 23,
+        "failed": 0,
+        "notes": "Real failed files: partial then full correction (loaded 3 rows with corrected values), save without recheck, not-waiting notice, cancel refused (409, 2 approved) and allowed (content discarded, hidden from dashboard), Importer shortcuts, Approver no-access and no cancel."
+      }
+    ]
+  },
+  "phase": "COMPLETE-ON-BRANCH",
+  "stories": {
+    "1": {
+      "status": "complete",
+      "commit": null,
+      "e2eStatus": "passed-after-fix",
+      "startedAt": "2026-10-15T13:13:14.956Z",
+      "completedAt": "2026-10-15T13:22:16.955Z"
+    },
+    "2": {
+      "status": "complete",
+      "commit": null,
+      "e2eStatus": "passed",
+      "startedAt": "2026-10-15T13:22:16.956Z",
+      "completedAt": "2026-10-15T13:28:22.299Z"
+    },
+    "3": {
+      "status": "complete",
+      "commit": null,
+      "e2eStatus": "passed-after-fix",
+      "startedAt": "2026-10-15T13:28:22.300Z",
+      "completedAt": "2026-10-15T13:32:53.411Z"
+    }
+  },
+  "halt": null,
+  "lastUpdated": "2026-10-15T13:32:53.411Z"
+}

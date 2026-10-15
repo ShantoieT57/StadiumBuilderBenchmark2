@@ -3,7 +3,11 @@
  * screen. Status is always shown in words (never by colour alone).
  */
 import { formatLocalDateTime } from '@/lib/format/transaction';
-import type { FileStatus, ProcessingStage } from '@/types/api-generated';
+import type {
+  FileListItem,
+  FileStatus,
+  ProcessingStage,
+} from '@/types/api-generated';
 
 export const NOT_PROCESSED_YET = 'Not processed yet';
 export const NOT_COUNTED_YET = 'Not counted yet';
@@ -19,6 +23,20 @@ export const FILE_STATUS_LABELS: Record<FileStatus, string> = {
 
 export function formatFileStatus(status: FileStatus): string {
   return FILE_STATUS_LABELS[status] ?? status;
+}
+
+/** True when a file failed because of invalid rows (whether or not it was cancelled since). */
+export function failedOnInvalidRows(
+  file: Pick<FileListItem, 'status' | 'failureKind'>,
+): boolean {
+  return file.status === 'Failed' && file.failureKind === 'InvalidRows';
+}
+
+/** True when a file is waiting for an importer to correct its invalid rows. */
+export function isWaitingForCorrections(
+  file: Pick<FileListItem, 'status' | 'failureKind' | 'isCancelled'>,
+): boolean {
+  return failedOnInvalidRows(file) && !file.isCancelled;
 }
 
 /** A processing stage in plain words. */

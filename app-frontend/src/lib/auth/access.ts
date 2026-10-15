@@ -6,14 +6,20 @@
 import type { UserRole } from '@/types/api-generated';
 
 /** Every signed-in screen that has an access rule. */
-export type AppRoute = '/dashboard' | '/transactions' | '/upload';
+export type AppRoute =
+  | '/dashboard'
+  | '/transactions'
+  | '/upload'
+  | '/dashboard/files/[fileId]/corrections';
 
 export interface RouteAccess {
   route: AppRoute;
-  /** Menu label. */
+  /** Menu label (or the screen's name, for screens kept out of the menu). */
   label: string;
   /** Roles allowed to open the screen (and to see its menu item). */
   roles: readonly UserRole[];
+  /** False for screens reached from another screen, never from the menu. Default true. */
+  inMenu?: boolean;
 }
 
 /** Menu order is the order of this list. */
@@ -26,6 +32,12 @@ export const ROUTE_ACCESS: readonly RouteAccess[] = [
     roles: ['Importer', 'Approver'],
   },
   { route: '/upload', label: 'Upload', roles: ['Importer'] },
+  {
+    route: '/dashboard/files/[fileId]/corrections',
+    label: 'Correct invalid rows',
+    roles: ['Importer'],
+    inMenu: false,
+  },
 ];
 
 /** Whether a person holding `role` may open `route`. */
@@ -37,5 +49,7 @@ export function canAccess(role: UserRole, route: AppRoute): boolean {
 
 /** The menu items a person holding `role` may use, in menu order. */
 export function menuItemsFor(role: UserRole): readonly RouteAccess[] {
-  return ROUTE_ACCESS.filter((entry) => entry.roles.includes(role));
+  return ROUTE_ACCESS.filter(
+    (entry) => entry.inMenu !== false && entry.roles.includes(role),
+  );
 }

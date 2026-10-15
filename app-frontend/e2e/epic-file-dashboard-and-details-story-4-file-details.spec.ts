@@ -101,11 +101,14 @@ function fileLink(page: Page, fileName: string): Locator {
   return page.getByRole('link', { name: fileName, exact: true });
 }
 
-/** File names shown in the dashboard table, in display order. */
+/**
+ * File names shown in the dashboard table, in display order. An Importer also
+ * sees "Correct <file name>" shortcut links, which are not file names.
+ */
 async function visibleFileNames(page: Page): Promise<string[]> {
   const names = await page
     .getByRole('table')
-    .getByRole('link', { name: /\.csv$/ })
+    .getByRole('link', { name: /^(?!Correct ).+\.csv$/ })
     .allInnerTexts();
   return names.map((name) => name.trim());
 }
