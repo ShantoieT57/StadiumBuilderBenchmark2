@@ -69,6 +69,7 @@ import {
   formatLastProcessed,
   formatProcessingStage,
   formatRowCount,
+  isWaitingForCorrections,
 } from '@/lib/format/file';
 import {
   formatLocalDateTime,
@@ -184,15 +185,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       </h2>
       {children}
     </section>
-  );
-}
-
-/** True when the file is waiting for an importer to correct its invalid rows. */
-export function isWaitingForCorrections(file: FileDetails): boolean {
-  return (
-    file.status === 'Failed' &&
-    file.failureKind === 'InvalidRows' &&
-    !file.isCancelled
   );
 }
 

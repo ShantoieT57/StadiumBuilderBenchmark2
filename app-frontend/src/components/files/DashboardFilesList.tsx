@@ -19,19 +19,11 @@ import {
   type FileRowActions,
 } from '@/components/files/FilesList';
 import { Button } from '@/components/ui/button';
-import type { FileListItem, UserRole } from '@/types/api-generated';
-
-/** True when a listed file is waiting for an importer to correct its invalid rows. */
-export function needsCorrecting(file: FileListItem): boolean {
-  return (
-    file.status === 'Failed' &&
-    file.failureKind === 'InvalidRows' &&
-    !file.isCancelled
-  );
-}
+import { isWaitingForCorrections } from '@/lib/format/file';
+import type { UserRole } from '@/types/api-generated';
 
 const importerRowActions: FileRowActions = (file) =>
-  needsCorrecting(file) ? (
+  isWaitingForCorrections(file) ? (
     <Button asChild variant="outline" size="sm">
       <Link
         href={correctionsHref(file.id)}

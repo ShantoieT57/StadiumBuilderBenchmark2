@@ -34,11 +34,13 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/contexts/ToastContext';
 import { cancelFile } from '@/lib/api/endpoints';
 import {
+  bodyMessageOf,
   isAPIError,
   isNetworkError,
   isRedirectingToSignIn,
   statusOf,
 } from '@/lib/api/errors';
+import { failedOnInvalidRows } from '@/lib/format/file';
 import type { FileDetails } from '@/types/api-generated';
 
 export const CANCEL_FILE_LABEL = 'Cancel file';
@@ -63,12 +65,10 @@ export function fileCancelledMessage(fileName: string): string {
 /** The server's own words for a refusal: its body `message`, else the error message. */
 function serverMessageOf(error: unknown): string {
   if (!isAPIError(error)) return CANCEL_FAILED_MESSAGE;
-  const body = error.body;
-  if (typeof body === 'object' && body !== null) {
-    const { message } = body as { message?: unknown };
-    if (typeof message === 'string' && message.trim() !== '') return message;
-  }
-  return error.message.trim() !== '' ? error.message : CANCEL_FAILED_MESSAGE;
+  return (
+    bodyMessageOf(error) ??
+    (error.message.trim() !== '' ? error.message : CANCEL_FAILED_MESSAGE)
+  );
 }
 
 /** The inline problem for a failure that keeps the dialog open. */
@@ -168,7 +168,7 @@ export function CancelFileDialog({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {`Its transactions will be removed and the original file will be discarded, so it can no longer be downloaded.${
-              file.status === 'Failed' && file.failureKind === 'InvalidRows'
+              failedOnInvalidRows(file)
                 ? ' It will no longer wait for corrections.'
                 : ''
             } It will be hidden from the Dashboard unless cancelled files are shown.`}

@@ -47,9 +47,15 @@ export function isRowDate(value: string): boolean {
   return day <= daysInMonth && hour <= 23 && minute <= 59 && second <= 59;
 }
 
-/** True when `value` is a number, not negative, with at most two decimals. */
+/** The back-end's amount column (numeric(18,2)) holds at most 16 whole digits. */
+const MAX_WHOLE_DIGITS = 16;
+
+/** True when `value` is a number, not negative, with at most two decimals, that the back-end can store. */
 export function isRowAmount(value: string): boolean {
-  return AMOUNT_PATTERN.test(value.trim());
+  const trimmed = value.trim();
+  if (!AMOUNT_PATTERN.test(trimmed)) return false;
+  const whole = trimmed.split('.')[0].replace(/^0+/, '');
+  return whole.length <= MAX_WHOLE_DIGITS;
 }
 
 export const correctionRowSchema = z.object({

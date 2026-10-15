@@ -62,6 +62,7 @@ import {
   saveCorrections,
 } from '@/lib/api/endpoints';
 import {
+  bodyMessageOf,
   isAPIError,
   isNetworkError,
   isRedirectingToSignIn,
@@ -151,20 +152,7 @@ function valuesOf(row: InvalidRow): CorrectionRowValues {
 }
 
 function toCorrection(values: CorrectionRowValues): RowCorrection {
-  const correction: RowCorrection = {
-    id: values.id,
-    reference: '',
-    transactionDate: '',
-    accountNumber: '',
-    description: '',
-    amount: '',
-    transactionType: '',
-    currency: '',
-  };
-  for (const field of CORRECTION_FIELDS) {
-    correction[field] = values[field] ?? '';
-  }
-  return correction;
+  return { ...values };
 }
 
 function baselineOf(rows: InvalidRow[]): Map<string, CorrectionRowValues> {
@@ -183,11 +171,8 @@ function isChanged(
 /** The server's own words in an error body: its `message`, else every `errors` value. */
 function serverWordsOf(error: unknown): string {
   if (!isAPIError(error)) return '';
-  const body = error.body;
-  if (typeof body === 'object' && body !== null) {
-    const { message } = body as { message?: unknown };
-    if (typeof message === 'string' && message.trim() !== '') return message;
-  }
+  const message = bodyMessageOf(error);
+  if (message !== undefined) return message;
   const errors = error.errors;
   if (errors) {
     const words = Object.values(errors).flat().join(' ');
@@ -228,9 +213,11 @@ function BackToDetails({ fileId }: { fileId: string }) {
 function CorrectionsHeader({
   file,
   onCancelled,
+  onRefused,
 }: {
   file: FileDetails;
   onCancelled: (details: FileDetails) => void;
+  onRefused: () => void;
 }) {
   return (
     <header className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -244,7 +231,11 @@ function CorrectionsHeader({
       {/* Header actions area: the importer's file actions on this screen. */}
       <div className="flex flex-wrap gap-2" data-slot="file-actions">
         {!file.isCancelled && (
-          <CancelFileDialog file={file} onCancelled={onCancelled} />
+          <CancelFileDialog
+            file={file}
+            onCancelled={onCancelled}
+            onRefused={onRefused}
+          />
         )}
       </div>
     </header>
@@ -257,11 +248,14 @@ function RowField({
   index,
   field,
   idPrefix,
+  locked,
 }: {
   form: UseFormReturn<CorrectionsValues>;
   index: number;
   field: CorrectionField;
   idPrefix: string;
+  /** Read-only while a request is in flight, so its answer cannot wipe new typing. */
+  locked: boolean;
 }) {
   const inputId = `${idPrefix}-${field}`;
   const errorId = `${inputId}-error`;
@@ -276,6 +270,7 @@ function RowField({
       <Input
         id={inputId}
         required={required}
+        readOnly={locked}
         autoComplete="off"
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
@@ -295,10 +290,12 @@ function RowCard({
   row,
   index,
   form,
+  locked,
 }: {
   row: InvalidRow;
   index: number;
   form: UseFormReturn<CorrectionsValues>;
+  locked: boolean;
 }) {
   const id = useId();
   const headingId = `${id}-heading`;
@@ -326,6 +323,7 @@ function RowCard({
             index={index}
             field={field}
             idPrefix={id}
+            locked={locked}
           />
         ))}
       </div>
@@ -337,6 +335,8 @@ function RowCard({
 interface CorrectionsFormHandle {
   /** Shows the latest rows, keeping any edits not yet sent (by row id). */
   mergeRows: (next: InvalidRowList) => void;
+  /** True while Save changes / Check again is in flight: its own answer decides what shows. */
+  isBusy: () => boolean;
 }
 
 function CorrectionsForm({
@@ -356,9 +356,15 @@ function CorrectionsForm({
   const router = useRouter();
   const { showToast } = useToast();
   const [list, setList] = useState<InvalidRowList>(initialRows);
-  const [pending, setPending] = useState<CorrectionRequest['kind'] | null>(
+  const [pending, setPendingState] = useState<CorrectionRequest['kind'] | null>(
     null,
   );
+  // Mirrors `pending` for the screen's live refresh, which runs outside render.
+  const pendingRef = useRef<CorrectionRequest['kind'] | null>(null);
+  const setPending = (kind: CorrectionRequest['kind'] | null) => {
+    pendingRef.current = kind;
+    setPendingState(kind);
+  };
   const [problem, setProblem] = useState<Problem | null>(null);
   // The values as last loaded or saved: what "changed" is measured against.
   const baselineRef = useRef(baselineOf(initialRows.rows));
@@ -402,6 +408,7 @@ function CorrectionsForm({
       setList(next);
       form.reset({ rows: merged });
     },
+    isBusy: () => pendingRef.current !== null,
   }));
 
   const changedCorrections = (): RowCorrection[] =>
@@ -581,7 +588,13 @@ function CorrectionsForm({
       </div>
 
       {list.rows.map((row, index) => (
-        <RowCard key={row.id} row={row} index={index} form={form} />
+        <RowCard
+          key={row.id}
+          row={row}
+          index={index}
+          form={form}
+          locked={pending !== null}
+        />
       ))}
 
       {problem && (
@@ -699,6 +712,10 @@ export function CorrectionsView({ fileId }: { fileId: string }) {
     const request = ++requestRef.current;
     return fetchCorrections(fileId).then((fetched) => {
       if (request !== requestRef.current) return;
+      // Save changes / Check again in flight: its own answer (e.g. a check that
+      // loads the file, which also fires file-changed) must not be cut off by a
+      // refresh that unmounts or resets the form underneath it.
+      if (formRef.current?.isBusy()) return;
       if (fetched.kind === 'failed') {
         const { error } = fetched;
         if (isRedirectingToSignIn(error)) return;
@@ -766,6 +783,11 @@ export function CorrectionsView({ fileId }: { fileId: string }) {
     void load();
   };
 
+  // Brings the file up to date in place (after a failed refresh or a refused cancel).
+  const refresh = () => {
+    void load();
+  };
+
   const changeFile = useCallback((file: FileDetails) => {
     setView((current) =>
       current.kind === 'waiting' ? { ...current, file } : current,
@@ -808,14 +830,12 @@ export function CorrectionsView({ fileId }: { fileId: string }) {
   if (view.kind === 'waiting') {
     content = (
       <>
-        <CorrectionsHeader file={view.file} onCancelled={goToDetails} />
-        {view.refreshFailed && (
-          <RefreshFailedNotice
-            onRetry={() => {
-              void load();
-            }}
-          />
-        )}
+        <CorrectionsHeader
+          file={view.file}
+          onCancelled={goToDetails}
+          onRefused={refresh}
+        />
+        {view.refreshFailed && <RefreshFailedNotice onRetry={refresh} />}
         <CorrectionsForm
           key={view.formKey}
           handleRef={formRef}
@@ -829,7 +849,11 @@ export function CorrectionsView({ fileId }: { fileId: string }) {
   } else if (view.kind === 'notWaiting') {
     content = (
       <>
-        <CorrectionsHeader file={view.file} onCancelled={goToDetails} />
+        <CorrectionsHeader
+          file={view.file}
+          onCancelled={goToDetails}
+          onRefused={refresh}
+        />
         <NotWaitingNotice file={view.file} message={view.message} />
       </>
     );
