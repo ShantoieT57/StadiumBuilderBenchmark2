@@ -1,11 +1,9 @@
-import { redirect } from 'next/navigation';
-
 import { AppNav } from '@/components/shell/AppNav';
 import { SessionRecheck } from '@/components/shell/SessionRecheck';
 import { SignedInHeader } from '@/components/shell/SignedInHeader';
 import { SignOutButton } from '@/components/shell/SignOutButton';
 import { EventsProvider } from '@/contexts/EventsContext';
-import { currentSession, signInPathFor } from '@/lib/server/session';
+import { requireSession } from '@/lib/auth/requireSession';
 
 /**
  * The signed-in shell (BR3 / NFR-1). Gated server-side: the session is checked
@@ -27,18 +25,15 @@ export default async function SignedInLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await currentSession();
-  if (session.status !== 'signed-in') {
-    redirect(signInPathFor(session));
-  }
+  const user = await requireSession();
 
   return (
     <EventsProvider>
       <SessionRecheck />
       <div className="flex min-h-screen flex-col">
         <SignedInHeader
-          user={session.user}
-          nav={<AppNav role={session.user.role} />}
+          user={user}
+          nav={<AppNav role={user.role} />}
           actions={<SignOutButton />}
         />
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">

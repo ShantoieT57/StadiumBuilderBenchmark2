@@ -1,5 +1,5 @@
 /**
- * Server-side session check for the signed-in layout and `/` (BR3 / NFR-1).
+ * Server-side session check behind `requireSession` (BR3 / NFR-1).
  * SERVER ONLY: uses `next/headers`.
  *
  * Calls `GET ${BACKEND_URL}/auth/me` with the incoming `txn_session` cookie.

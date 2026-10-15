@@ -1,8 +1,8 @@
 /**
  * Story Metadata:
  * - Route: /dashboard
- * - Target File: app-frontend/src/app/(signed-in)/layout.tsx
- *   (navigation component in components/, access map in lib/auth/, (signed-in)/dashboard/page.tsx placeholder)
+ * - Target File: app-frontend/src/app/(authenticated)/layout.tsx
+ *   (navigation component in components/, access map in lib/auth/, (authenticated)/dashboard/page.tsx placeholder)
  * - Page Action: modify_existing
  *
  * Mocking strategy:

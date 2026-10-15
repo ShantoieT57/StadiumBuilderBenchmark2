@@ -1,7 +1,7 @@
 /**
  * Story Metadata:
  * - Route: /dashboard
- * - Target File: app-frontend/src/app/(signed-in)/layout.tsx
+ * - Target File: app-frontend/src/app/(authenticated)/layout.tsx
  *   (sign-out control, events provider in contexts/, app/api/events/route.ts streaming proxy,
  *   401 handling in lib/api/client.ts, reason messages on app/sign-in/page.tsx)
  * - Page Action: modify_existing
@@ -26,7 +26,7 @@
  *     `/sign-in`, showing a "You have signed out" success message.
  *   - The live connection is a browser `EventSource` (or fetch) to same-origin `/api/events`,
  *     so page.route() can fulfil it. On `session-ended` it goes to sign-in with the reason.
- *   - The `(signed-in)` server layout forwards the 401 `reason` from GET auth/me into its
+ *   - The `(authenticated)` server layout forwards the 401 `reason` from GET auth/me into its
  *     redirect (e.g. `/sign-in?reason=SessionExpired`), using the SAME reason-to-message
  *     mapping as the central 401 handler in client.ts.
  *   - Sign-in reason messages: SessionExpired mentions "60 minutes" (inactivity);

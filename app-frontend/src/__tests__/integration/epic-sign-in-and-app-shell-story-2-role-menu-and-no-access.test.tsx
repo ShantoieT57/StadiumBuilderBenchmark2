@@ -1,7 +1,7 @@
 /**
  * Story Metadata:
  * - Route: /dashboard
- * - Target File: app-frontend/src/app/(signed-in)/layout.tsx
+ * - Target File: app-frontend/src/app/(authenticated)/layout.tsx
  *   (navigation component at app-frontend/src/components/shell/AppNav.tsx,
  *    route-to-role access map at app-frontend/src/lib/auth/access.ts)
  * - Page Action: modify_existing

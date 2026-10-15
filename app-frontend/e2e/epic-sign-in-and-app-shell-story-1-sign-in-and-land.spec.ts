@@ -1,7 +1,7 @@
 /**
  * Story Metadata:
  * - Route: /sign-in
- * - Target File: app-frontend/src/app/sign-in/page.tsx + app-frontend/src/app/(signed-in)/layout.tsx
+ * - Target File: app-frontend/src/app/sign-in/page.tsx + app-frontend/src/app/(authenticated)/layout.tsx
  * - Page Action: create_new
  *
  * Mocking strategy:
@@ -20,7 +20,7 @@
  *   - The sign-in form posts from the BROWSER (client-component call through
  *     `@/lib/api/client` to the relative `/api/auth/sign-in`), not a Server Action —
  *     page.route() cannot intercept Server Action requests.
- *   - The `(signed-in)` server layout calls `${process.env.BACKEND_URL}/auth/me` at
+ *   - The `(authenticated)` server layout calls `${process.env.BACKEND_URL}/auth/me` at
  *     request time (read at runtime, not inlined at build), forwarding the incoming
  *     `txn_session` cookie, and calls `redirect('/sign-in')` on 401 BEFORE rendering
  *     anything — so a signed-out visit is a server redirect, never a flash of content.

@@ -9,12 +9,24 @@
  * - When the back-end cannot be reached, the proxy answers 502 so the client
  *   can tell a connection problem from an HTTP refusal.
  *
+ * - Only the documented back-end operations are forwarded: the method and path
+ *   are validated against `BACKEND_ENDPOINTS` (ids as UUIDs); anything else gets
+ *   a 404 and never reaches the back-end.
+ * - Every operation except signing in / out needs the session cookie
+ *   (`requireAuth`); without it the proxy answers the back-end's own 401
+ *   `NotSignedIn` shape. The back-end remains the authority on the session.
+ *
  * A route handler (rather than next.config rewrites) is used so BACKEND_URL is
  * read at request time and an unreachable back-end yields a clean 502.
  */
 import type { NextRequest } from 'next/server';
 
+import { requireAuth } from '@/lib/auth/requireAuth';
 import { backendUrl } from '@/lib/server/backend';
+import {
+  BACKEND_ENDPOINTS,
+  type BackendEndpoint,
+} from '@/lib/server/backendEndpoints';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,9 +49,23 @@ const DROPPED_RESPONSE_HEADERS = new Set([
   'transfer-encoding',
 ]);
 
+/** The request's path relative to `/api`, e.g. `/files/<id>`. */
+function backendPath(request: NextRequest): string {
+  return request.nextUrl.pathname.replace(/^\/api/, '');
+}
+
+/** The documented operation this request is for, if any. */
+function endpointFor(request: NextRequest): BackendEndpoint | undefined {
+  const segments = backendPath(request).replace(/^\//, '').split('/');
+  return BACKEND_ENDPOINTS.find(
+    (endpoint) =>
+      endpoint.methods.some((method) => method === request.method) &&
+      endpoint.path.safeParse(segments).success,
+  );
+}
+
 function targetUrl(request: NextRequest): string {
-  const path = request.nextUrl.pathname.replace(/^\/api/, '');
-  return `${backendUrl()}${path}${request.nextUrl.search}`;
+  return `${backendUrl()}${backendPath(request)}${request.nextUrl.search}`;
 }
 
 function forwardedHeaders(request: NextRequest): Headers {
@@ -58,7 +84,18 @@ function unreachable(): Response {
   );
 }
 
+function notFound(): Response {
+  return Response.json({ message: 'Not found.' }, { status: 404 });
+}
+
 async function proxy(request: NextRequest): Promise<Response> {
+  const endpoint = endpointFor(request);
+  if (!endpoint) return notFound();
+  if (!endpoint.anonymous) {
+    const denied = requireAuth(request);
+    if (denied) return denied;
+  }
+
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
 
   let upstream: Response;

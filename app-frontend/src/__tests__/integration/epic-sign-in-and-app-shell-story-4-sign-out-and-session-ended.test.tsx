@@ -1,7 +1,7 @@
 /**
  * Story Metadata:
  * - Route: /dashboard
- * - Target File: app-frontend/src/app/(signed-in)/layout.tsx
+ * - Target File: app-frontend/src/app/(authenticated)/layout.tsx
  *   (sign-out control, events provider in contexts/, app/api/events/route.ts streaming
  *   proxy, 401 handling in lib/api/client.ts, reason messages on app/sign-in/page.tsx)
  * - Page Action: modify_existing

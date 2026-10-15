@@ -2,13 +2,13 @@
  * Per-epic baseline: sign-in-and-app-shell
  *
  * Cross-story invariants of the shared signed-in shell, created by Story 1 (the
- * story that introduces the `(signed-in)` route group and its layout). Later
+ * story that introduces the `(authenticated)` route group and its layout). Later
  * stories in this epic do NOT re-assert these; extend this file only with
  * genuinely new shared-surface invariants.
  *
  * Story Metadata (shared surface introduced by Story 1):
- * - Route: /upload, /transactions (any route inside the (signed-in) group)
- * - Target File: app-frontend/src/app/(signed-in)/layout.tsx
+ * - Route: /upload, /transactions (any route inside the (authenticated) group)
+ * - Target File: app-frontend/src/app/(authenticated)/layout.tsx
  * - Components under test:
  *   - app-frontend/src/components/shell/SignedInHeader.tsx (named export
  *     `SignedInHeader`, props `{ user: CurrentUser }`) - the shell's top bar,

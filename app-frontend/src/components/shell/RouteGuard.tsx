@@ -1,8 +1,6 @@
-import { redirect } from 'next/navigation';
-
 import { NoAccess } from '@/components/shell/NoAccess';
 import { canAccess, type AppRoute } from '@/lib/auth/access';
-import { currentSession, signInPathFor } from '@/lib/server/session';
+import { requireSession } from '@/lib/auth/requireSession';
 
 interface RouteGuardProps {
   route: AppRoute;
@@ -16,11 +14,8 @@ interface RouteGuardProps {
  * screen's content; nobody signed in is sent to sign-in.
  */
 export async function RouteGuard({ route, children }: RouteGuardProps) {
-  const session = await currentSession();
-  if (session.status !== 'signed-in') {
-    redirect(signInPathFor(session));
-  }
-  if (!canAccess(session.user.role, route)) {
+  const user = await requireSession();
+  if (!canAccess(user.role, route)) {
     return <NoAccess />;
   }
   return children;
