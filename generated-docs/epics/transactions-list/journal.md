@@ -11,3 +11,8 @@
 
 - **File picker.** The filter panel loads the 50 most recently processed files for the File picker, because the back-end's largest page size is 50. If a link points at an older file, the filter still works: the picker and the chip show "Selected file" in place of its name.
 - **No-match message.** It lists the filters in use under "Filters in use", separately from the "Active filters" chips, so the chips aren't counted twice.
+
+## Story 3: Transaction details
+
+- **Details address.** Opening a transaction goes to a plain /transactions/<id> address. The list's filters, sort and page are not put in that address; the app remembers them for the browser tab instead, which keeps the details address clean. "Back to transactions" and the browser Back button both return to the list exactly as it was left.
+- **Times on the details screen.** "Created on" and "Last changed on" are shown in local time. The transaction date itself is still shown exactly as the bank file had it.

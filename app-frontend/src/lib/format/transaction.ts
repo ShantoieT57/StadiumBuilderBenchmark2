@@ -17,6 +17,19 @@ export function formatTransactionDate(value: string): string {
   return match ? `${match[1]} ${match[2]}` : value;
 }
 
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/**
+ * An ISO time WITH an offset (audit times such as `lastChangedAt`) in the
+ * browser's local time: `2026-05-03T10:30:00+02:00` -> `2026-05-03 10:30` in
+ * Johannesburg. Same layout as `formatTransactionDate`.
+ */
+export function formatLocalDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
 const AMOUNT_FORMAT = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,

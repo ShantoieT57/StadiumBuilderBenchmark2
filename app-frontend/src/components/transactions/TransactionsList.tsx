@@ -76,6 +76,7 @@ import {
   type TransactionListState,
   type TransactionPageSize,
 } from '@/lib/transactions/listQuery';
+import { rememberListSearch } from '@/lib/transactions/listReturn';
 import type {
   ListTransactionsQuery,
   TransactionListItem,
@@ -108,10 +109,13 @@ const COLUMNS: readonly Column[] = [
   { sortBy: 'FileName', label: 'File' },
 ];
 
-/** The details route for a transaction, carrying the list's view so it can return to it. */
-export function transactionDetailsHref(id: string, listSearch: string): string {
-  const path = `/transactions/${encodeURIComponent(id)}`;
-  return listSearch ? `${path}?${listSearch}` : path;
+/**
+ * The details route for a transaction. The list's view is not carried in the
+ * link: browser Back restores it from the list URL, and the details screen's
+ * back link uses the view remembered by `rememberListSearch`.
+ */
+export function transactionDetailsHref(id: string): string {
+  return `/transactions/${encodeURIComponent(id)}`;
 }
 
 function SortIcon({
@@ -135,12 +139,10 @@ function SortIcon({
 function TransactionsTable({
   items,
   view,
-  listSearch,
   onSort,
 }: {
   items: TransactionListItem[];
   view: TransactionListState;
-  listSearch: string;
   onSort: (column: TransactionSortColumn) => void;
 }) {
   return (
@@ -184,7 +186,7 @@ function TransactionsTable({
             <TableRow key={item.id}>
               <TableCell className="font-medium">
                 <Link
-                  href={transactionDetailsHref(item.id, listSearch)}
+                  href={transactionDetailsHref(item.id)}
                   className="text-primary underline-offset-4 hover:underline focus-visible:ring-ring/50 rounded-sm outline-none focus-visible:ring-[3px]"
                 >
                   {item.reference}
@@ -215,13 +217,7 @@ function TransactionsTable({
   );
 }
 
-function TransactionsCompactList({
-  items,
-  listSearch,
-}: {
-  items: TransactionListItem[];
-  listSearch: string;
-}) {
+function TransactionsCompactList({ items }: { items: TransactionListItem[] }) {
   return (
     <ul aria-label="Transactions" className="flex flex-col gap-2 md:hidden">
       {items.map((item) => (
@@ -245,7 +241,7 @@ function TransactionsCompactList({
           {/* Row actions: the details link; later epics add Approve / Reject here. */}
           <div className="flex flex-wrap justify-end gap-2">
             <Button asChild variant="outline" size="sm">
-              <Link href={transactionDetailsHref(item.id, listSearch)}>
+              <Link href={transactionDetailsHref(item.id)}>
                 Details<span className="sr-only"> for {item.reference}</span>
               </Link>
             </Button>
@@ -402,6 +398,11 @@ export function TransactionsList() {
     );
   }, []);
 
+  // Remember the view so the details screen's back link returns to it.
+  useEffect(() => {
+    rememberListSearch(listSearch);
+  }, [listSearch]);
+
   useEffect(() => {
     queryRef.current = query;
     void load(query);
@@ -494,10 +495,9 @@ export function TransactionsList() {
         <TransactionsTable
           items={result.items}
           view={view}
-          listSearch={listSearch}
           onSort={(column) => navigate(withSort(view, column))}
         />
-        <TransactionsCompactList items={result.items} listSearch={listSearch} />
+        <TransactionsCompactList items={result.items} />
         <Paging
           result={result}
           view={view}
