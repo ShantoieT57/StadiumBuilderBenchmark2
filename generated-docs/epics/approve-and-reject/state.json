@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "epic": {
+    "slug": "approve-and-reject",
+    "name": "Approving and rejecting transactions",
+    "createdAt": "2026-10-15T13:56:06.831Z",
+    "dependsOn": [
+      "transactions-list"
+    ],
+    "introducesSharedSurface": false,
+    "unverifiedAssumptions": [],
+    "manualTestResults": []
+  },
+  "phase": "PLAN",
+  "stories": {},
+  "halt": null,
+  "lastUpdated": "2026-10-15T13:56:06.831Z"
+}
