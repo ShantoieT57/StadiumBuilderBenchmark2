@@ -7,3 +7,7 @@ Approve sits in a new Approver-only "Actions" column (and after "Details" on pho
 ## Story 2 — Reject with a reason
 
 Reject opens "Reject <reference>?" with a required Reason, a polite live counter of characters left out of 500 (trimmed, counted like the server so an emoji is two), and Reject disabled until a real reason is typed. Over-long pastes are never truncated — the counter says how many too many and the field refuses on blur/submit. Success toasts "<reference> rejected." and marks the row Rejected; a 409 reuses story 1's lasting message; a server refusal of `reason` shows under the field; other failures keep the typed reason with "Try again" (a non-reason 400 shows inline without retry). The shadcn CLI again wrote `import { cn } from "cn"` — fixed with the logged workaround.
+
+## Story 3 — Waiting count on the menu
+
+ImportedCountProvider (Approver layouts only) loads the count on mount and refetches on `transactions-changed`, `resync` and `refreshImportedCount()` via EventsProvider's `subscribe` — no extra connection, no polling. Newest-request-wins so a slow older answer can't overwrite a newer one. ImportedCountBadge (shadcn Badge, primary variant) passes through AppNav's `badges` slot so it shows in the inline nav and the phone Sheet. Failures are silent and keep the last number; the list reports its own load problems.
