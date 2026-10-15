@@ -3,7 +3,8 @@
 /**
  * ToastContainer - Container component for rendering toast notifications
  * Positioned at top-right of viewport, renders all active toasts
- * Manages stacking and positioning of multiple toasts
+ * Manages stacking and positioning of multiple toasts. Each toast is its own
+ * live region (status / alert), so the container itself is not one.
  */
 
 import { useToast } from '@/contexts/ToastContext';
@@ -12,7 +13,6 @@ import { ToastContainerProps } from '@/types/toast';
 
 export function ToastContainer({
   position = 'top-right',
-  maxToasts = 3,
 }: ToastContainerProps = {}) {
   const { toasts, dismissToast } = useToast();
 
@@ -36,8 +36,9 @@ export function ToastContainer({
     }
   };
 
-  // Limit number of visible toasts
-  const visibleToasts = toasts.slice(-maxToasts);
+  // The provider keeps the on-screen limit (TOAST_DEFAULTS.MAX_TOASTS), so
+  // every message it holds is shown: a problem is never hidden here.
+  const visibleToasts = toasts;
 
   if (visibleToasts.length === 0) {
     return null;
@@ -46,8 +47,6 @@ export function ToastContainer({
   return (
     <div
       className={`fixed ${getPositionClasses()} z-50 flex flex-col gap-2 max-w-sm w-full px-4 sm:px-0 pointer-events-none`}
-      aria-live="polite"
-      aria-atomic="false"
       role="region"
       aria-label="Notifications"
     >

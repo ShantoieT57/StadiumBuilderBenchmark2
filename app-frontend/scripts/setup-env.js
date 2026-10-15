@@ -33,7 +33,9 @@ function setupEnvironment() {
       envCreated = true;
       log('✅ Created .env.local from .env.example');
     } else {
-      const basicEnv = `NEXT_PUBLIC_API_BASE_URL=http://localhost:8042\n`;
+      // Server-only back-end address; the browser calls the same-origin
+      // /api proxy, which forwards to it.
+      const basicEnv = `BACKEND_URL=http://localhost:5100/api\n`;
       fs.writeFileSync(ENV_LOCAL_PATH, basicEnv);
       envCreated = true;
       log('✅ Created .env.local');

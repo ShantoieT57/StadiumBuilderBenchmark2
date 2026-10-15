@@ -1,8 +1,12 @@
 'use client';
 
 /**
- * ToastContext - Manages toast notification state across the application
- * Provides functions to show, dismiss, and manage toast notifications
+ * ToastContext - the app's single shared message mechanism (BR10).
+ *
+ * Owns the one auto-dismiss timer per message: success / info / warning
+ * messages close themselves after their duration; problems (`error`) never
+ * do — they stay until the person dismisses them or the caller dismisses
+ * them (by id) once the problem is resolved.
  */
 
 import React, {
@@ -19,25 +23,37 @@ import {
   ToastOptions,
   ToastContextValue,
   TOAST_DEFAULTS,
+  isProblem,
 } from '@/types/toast';
 
-/**
- * Create the Toast Context with undefined default value
- * This forces consumers to use the context within a provider
- */
 const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 
 /**
- * ToastProvider - Context provider component
- * Wraps the application to provide toast notification functionality
+ * Keeps at most MAX_TOASTS messages by dropping the oldest auto-dismissing
+ * ones, never the message just added (`newId`) and never a problem. When only
+ * problems and the new message are left, the limit is exceeded instead, so
+ * neither a problem nor the message just raised is lost.
  */
+function trimToLimit(toasts: Toast[], newId: string): Toast[] {
+  const result = [...toasts];
+  while (result.length > TOAST_DEFAULTS.MAX_TOASTS) {
+    const oldestTransient = result.findIndex(
+      (t) => t.id !== newId && !isProblem(t.variant),
+    );
+    if (oldestTransient === -1) break;
+    result.splice(oldestTransient, 1);
+  }
+  return result;
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  // Track active timeout IDs for cleanup
-  const timeoutRefs = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  // The single timer per message lives here (not in the Toast component).
+  const timeoutRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
 
-  // Cleanup all timeouts on unmount
   useEffect(() => {
     const currentTimeoutRefs = timeoutRefs.current;
     return () => {
@@ -46,16 +62,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  /**
-   * dismissToast - Removes a toast notification by ID
-   * Also clears any active timeout for the toast
-   *
-   * @param id - Unique identifier of the toast to dismiss
-   */
-  const dismissToast = useCallback((id: string) => {
-    setToasts((prevToasts) => prevToasts.filter((toast) => toast.id !== id));
-
-    // Clear timeout if it exists
+  const clearTimer = useCallback((id: string) => {
     const timeoutId = timeoutRefs.current.get(id);
     if (timeoutId) {
       clearTimeout(timeoutId);
@@ -63,63 +70,54 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  /**
-   * showToast - Displays a new toast notification
-   * Automatically assigns a unique ID and sets up auto-dismiss timer
-   * Limits the number of visible toasts to MAX_TOASTS
-   *
-   * @param options - Toast configuration options (variant, title, message, duration, dismissible)
-   */
+  const dismissToast = useCallback(
+    (id: string) => {
+      setToasts((prevToasts) => prevToasts.filter((toast) => toast.id !== id));
+      clearTimer(id);
+    },
+    [clearTimer],
+  );
+
   const showToast = useCallback(
     (options: ToastOptions) => {
-      // Generate unique ID using timestamp + random string
       const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const problem = isProblem(options.variant);
 
-      // Create toast object with defaults
       const newToast: Toast = {
         id,
         variant: options.variant,
         title: options.title,
         message: options.message,
-        duration: options.duration ?? TOAST_DEFAULTS.DURATION,
-        dismissible: options.dismissible ?? TOAST_DEFAULTS.DISMISSIBLE,
+        duration: problem ? 0 : (options.duration ?? TOAST_DEFAULTS.DURATION),
+        dismissible: problem
+          ? true
+          : (options.dismissible ?? TOAST_DEFAULTS.DISMISSIBLE),
         onClick: options.onClick,
       };
 
-      // Add new toast and enforce max limit
       setToasts((prevToasts) => {
-        const updatedToasts = [...prevToasts, newToast];
-
-        // If we exceed the maximum, remove the oldest toast(s)
-        if (updatedToasts.length > TOAST_DEFAULTS.MAX_TOASTS) {
-          return updatedToasts.slice(-TOAST_DEFAULTS.MAX_TOASTS);
-        }
-
-        return updatedToasts;
+        const updated = trimToLimit([...prevToasts, newToast], id);
+        // Release timers of any messages trimmed away.
+        prevToasts
+          .filter((t) => !updated.includes(t))
+          .forEach((t) => clearTimer(t.id));
+        return updated;
       });
 
-      // Set up auto-dismiss timer if duration is specified
-      if (newToast.duration && newToast.duration > 0) {
-        const timeoutId = setTimeout(() => {
-          dismissToast(id);
-        }, newToast.duration);
-
-        // Store timeout ID for cleanup
-        timeoutRefs.current.set(id, timeoutId);
+      if (newToast.duration > 0) {
+        timeoutRefs.current.set(
+          id,
+          setTimeout(() => dismissToast(id), newToast.duration),
+        );
       }
+
+      return id;
     },
-    [dismissToast],
+    [dismissToast, clearTimer],
   );
 
-  /**
-   * clearAllToasts - Removes all active toast notifications
-   * Also clears all active timeouts
-   * Useful for cleanup or reset scenarios
-   */
   const clearAllToasts = useCallback(() => {
     setToasts([]);
-
-    // Clear all timeouts
     timeoutRefs.current.forEach((timeoutId) => clearTimeout(timeoutId));
     timeoutRefs.current.clear();
   }, []);
@@ -137,10 +135,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * useToast - Custom hook for accessing toast context
- * Throws an error if used outside of ToastProvider
- *
- * @returns ToastContextValue with toasts array and control functions
+ * useToast - access the shared message mechanism.
  * @throws Error if used outside of ToastProvider
  */
 export function useToast(): ToastContextValue {

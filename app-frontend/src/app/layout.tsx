@@ -2,13 +2,18 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { ToastProvider } from '@/contexts/ToastContext';
 import { ToastContainer } from '@/components/toast/ToastContainer';
+import { APP_NAME } from '@/lib/auth/messages';
 
 export const metadata: Metadata = {
-  title: 'Next.js Application Template',
+  title: APP_NAME,
   description:
-    'A template for building Next.js applications with external REST APIs',
+    'Import daily bank transaction files, then review, approve or reject each transaction.',
 };
 
+/**
+ * Root layout. Owns no landmarks: each screen (sign-in, privacy, the signed-in
+ * shell) renders its own <main>.
+ */
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -18,7 +23,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <ToastProvider>
-          <main className="min-h-screen">{children}</main>
+          {children}
           <ToastContainer />
         </ToastProvider>
       </body>

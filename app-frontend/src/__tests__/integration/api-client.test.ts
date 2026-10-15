@@ -15,6 +15,11 @@
 
 import { vi, type Mock } from 'vitest';
 import { apiClient, get, post } from '@/lib/api/client';
+import { isNetworkError } from '@/lib/api/errors';
+import {
+  unauthenticatedBody,
+  unauthenticatedMessages,
+} from '@/mocks/data/identity';
 import type { APIError } from '@/types/api';
 
 // Mock the global fetch function
@@ -151,6 +156,80 @@ describe('API Client Integration Tests', () => {
         expect(apiError.statusCode).toBe(500);
         expect(apiError.message).toContain('Internal Server Error');
       }
+    });
+
+    it('keeps the 401 message and reason from the body', async () => {
+      (global.fetch as Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => unauthenticatedBody('SessionExpired'),
+      });
+
+      const error = (await get('/auth/me').catch(
+        (e: unknown) => e,
+      )) as APIError;
+
+      expect(error.statusCode).toBe(401);
+      expect(error.reason).toBe('SessionExpired');
+      expect(error.message).toBe(unauthenticatedMessages.SessionExpired);
+      expect(isNetworkError(error)).toBe(false);
+    });
+
+    it('keeps the field errors of a validation problem', async () => {
+      const problem = {
+        title: 'One or more validation errors occurred.',
+        status: 400,
+        errors: { email: ['The email field is required.'] },
+      };
+      (global.fetch as Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: new Headers({ 'content-type': 'application/problem+json' }),
+        json: async () => problem,
+      });
+
+      const error = (await post('/auth/sign-in', {}).catch(
+        (e: unknown) => e,
+      )) as APIError;
+
+      expect(error.statusCode).toBe(400);
+      expect(error.errors).toEqual(problem.errors);
+      expect(error.details).toEqual(['The email field is required.']);
+      expect(error.body).toEqual(problem);
+    });
+
+    it('treats a 502 from the proxy as the back-end being unreachable', async () => {
+      (global.fetch as Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        statusText: 'Bad Gateway',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ message: 'The app could not be reached.' }),
+      });
+
+      const error = await get('/auth/me').catch((e: unknown) => e);
+
+      expect(isNetworkError(error)).toBe(true);
+      expect((error as APIError).statusCode).toBe(0);
+    });
+
+    it('requests go to the same-origin /api proxy', async () => {
+      (global.fetch as Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({}),
+      });
+
+      await get('/auth/me');
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/auth/me',
+        expect.anything(),
+      );
     });
 
     it('should handle network errors', async () => {

@@ -8,11 +8,14 @@
  * - Type-safe API responses
  *
  * USAGE:
- * 1. Update API_BASE_URL in constants.ts or environment variables
- * 2. Define your API endpoints as functions that call apiClient
- * 3. Customize error handling and logging as needed
+ * - Requests go to the same-origin `/api` proxy (API_BASE_URL in constants.ts),
+ *   which forwards them, with the session cookie, to the server-only BACKEND_URL.
+ * - Endpoint functions live in endpoints.ts.
+ * - Errors: see `APIError` (@/types/api) and the helpers in ./errors.ts.
  */
 
+import { UNREACHABLE_STATUSES } from '@/lib/api/errors';
+import { redirectToSignIn } from '@/lib/auth/signIn';
 import { API_BASE_URL } from '@/lib/utils/constants';
 import type {
   APIError,
@@ -77,12 +80,7 @@ export async function apiClient<T = unknown>(
   } catch (error) {
     // Handle network errors or other unexpected errors
     if (error instanceof Error && error.name === 'TypeError') {
-      throw createAPIError(
-        'Network error: Unable to connect to the API server',
-        0,
-        ['Please check your internet connection and try again.'],
-        url,
-      );
+      throw createNetworkError(url);
     }
 
     // Re-throw API errors
@@ -214,87 +212,162 @@ export function getAuthHeader(): { name: string; value: string } | null {
   return { name, value: `${prefix}${token}` };
 }
 
+/** The fields this API's error bodies can carry (all optional). */
+interface ParsedErrorBody {
+  /** The JSON body as received, or undefined when there was none / it wasn't JSON. */
+  raw?: unknown;
+  /** `ErrorResponse.message`, `UnauthenticatedResponse.message`, 409 `message`. */
+  message?: string;
+  /** `UnauthenticatedResponse.reason` (401). */
+  reason?: string;
+  /** `ValidationProblem.errors` (400; camelCase keys, `$` = whole body). */
+  errors?: Record<string, string[]>;
+  /** `ValidationProblem.title`. */
+  title?: string;
+  /** Legacy `DefaultResponse.Messages`. */
+  legacyMessages?: string[];
+  /** Legacy `DefaultResponse.MessageType`. */
+  legacyMessageType?: string;
+}
+
+function isStringArrayRecord(
+  value: unknown,
+): value is Record<string, string[]> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every(
+      (entry) =>
+        Array.isArray(entry) && entry.every((item) => typeof item === 'string'),
+    )
+  );
+}
+
 /**
- * Handles error responses from the API
- * Customize this function based on your API's error response format
+ * Reads a JSON error body (`application/json` or `application/problem+json`)
+ * into the fields this API uses. Never throws.
+ */
+async function parseErrorBody(response: Response): Promise<ParsedErrorBody> {
+  const contentType = response.headers.get('content-type');
+  if (!contentType || !contentType.includes('json')) {
+    return {};
+  }
+
+  try {
+    const raw: unknown = await response.json();
+    if (typeof raw !== 'object' || raw === null) {
+      return { raw };
+    }
+    const data = raw as Record<string, unknown> & Partial<DefaultResponse>;
+    return {
+      raw,
+      message: typeof data.message === 'string' ? data.message : undefined,
+      reason: typeof data.reason === 'string' ? data.reason : undefined,
+      errors: isStringArrayRecord(data.errors) ? data.errors : undefined,
+      title: typeof data.title === 'string' ? data.title : undefined,
+      legacyMessages:
+        Array.isArray(data.Messages) && data.Messages.length > 0
+          ? data.Messages
+          : undefined,
+      legacyMessageType:
+        typeof data.MessageType === 'string' ? data.MessageType : undefined,
+    };
+  } catch {
+    // Unparseable body: fall back to the status-based messages.
+    return {};
+  }
+}
+
+/** Status-based fallback messages when the body says nothing useful. */
+const STATUS_MESSAGES: Partial<
+  Record<HTTPStatusCode, { message: string; detail: string }>
+> = {
+  401: {
+    message: 'Unauthorized: Please log in to continue',
+    detail: 'Your session may have expired. Please log in again.',
+  },
+  403: {
+    message: 'Forbidden: You do not have permission to perform this action',
+    detail: 'Access denied.',
+  },
+  404: {
+    message: 'Not Found: The requested resource does not exist',
+    detail: 'Resource not found.',
+  },
+  500: {
+    message: 'Internal Server Error: Something went wrong on the server',
+    detail:
+      'Please try again later or contact support if the problem persists.',
+  },
+};
+
+/**
+ * Handles error responses from the API.
+ *
+ * The thrown APIError keeps the HTTP status and the parsed body so callers can
+ * branch on them: `message` (ErrorResponse / 409), `reason` (401), `errors`
+ * (400 ValidationProblem) and the raw `body`. A 502-504 from the same-origin
+ * proxy means the back-end could not be reached and is thrown as the same
+ * network error a failed fetch produces (statusCode 0).
  */
 async function handleErrorResponse(
   response: Response,
   url: string,
 ): Promise<never> {
   const statusCode = response.status as HTTPStatusCode;
+  const parsed = await parseErrorBody(response);
 
-  // Try to extract error details from response body
-  let errorMessages: string[] = [];
-  let defaultMessage = `HTTP ${statusCode}: ${response.statusText}`;
-
-  try {
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const errorData = (await response.json()) as DefaultResponse;
-
-      if (errorData.Messages && errorData.Messages.length > 0) {
-        errorMessages = errorData.Messages;
-        defaultMessage = errorMessages[0];
-      } else if (errorData.MessageType) {
-        defaultMessage = `${errorData.MessageType}: ${defaultMessage}`;
-      }
-    }
-  } catch {
-    // If parsing fails, use default error message
+  if (UNREACHABLE_STATUSES.includes(statusCode)) {
+    throw { ...createNetworkError(url), body: parsed.raw };
   }
 
-  // Handle specific status codes
-  // Customize these messages based on your application's needs
-  switch (statusCode) {
-    case 401:
-      throw createAPIError(
-        'Unauthorized: Please log in to continue',
-        statusCode,
-        errorMessages.length > 0
-          ? errorMessages
-          : ['Your session may have expired. Please log in again.'],
-        url,
-      );
+  // Central 401 handling (BR4): the session has ended, so leave for sign-in
+  // with the reason. `/auth/*` calls are excluded: a 401 from sign-in means
+  // wrong credentials, and `/auth/me` callers decide for themselves.
+  // The error is still thrown (so awaits and `finally` blocks settle), marked
+  // `redirecting` so catch paths show nothing during the page load.
+  const redirecting =
+    statusCode === 401 && !isAuthEndpoint(url)
+      ? redirectToSignIn(parsed.reason)
+      : false;
 
-    case 403:
-      throw createAPIError(
-        'Forbidden: You do not have permission to perform this action',
-        statusCode,
-        errorMessages.length > 0 ? errorMessages : ['Access denied.'],
-        url,
-      );
+  const validationMessages = parsed.errors
+    ? Object.values(parsed.errors).flat()
+    : [];
+  const bodyDetails =
+    parsed.legacyMessages ??
+    (parsed.message
+      ? [parsed.message]
+      : validationMessages.length > 0
+        ? validationMessages
+        : []);
 
-    case 404:
-      throw createAPIError(
-        'Not Found: The requested resource does not exist',
-        statusCode,
-        errorMessages.length > 0 ? errorMessages : ['Resource not found.'],
-        url,
-      );
+  const fallback = STATUS_MESSAGES[statusCode];
+  const genericMessage = `HTTP ${statusCode}: ${response.statusText}`;
+  const message =
+    parsed.message ??
+    fallback?.message ??
+    parsed.legacyMessages?.[0] ??
+    parsed.title ??
+    (parsed.legacyMessageType
+      ? `${parsed.legacyMessageType}: ${genericMessage}`
+      : genericMessage);
 
-    case 500:
-      throw createAPIError(
-        'Internal Server Error: Something went wrong on the server',
-        statusCode,
-        errorMessages.length > 0
-          ? errorMessages
-          : [
-              'Please try again later or contact support if the problem persists.',
-            ],
-        url,
-      );
+  const error = createAPIError(
+    message,
+    statusCode,
+    bodyDetails.length > 0
+      ? bodyDetails
+      : [fallback?.detail ?? `Request failed with status ${statusCode}`],
+    url,
+  );
+  if (parsed.reason !== undefined) error.reason = parsed.reason;
+  if (parsed.errors !== undefined) error.errors = parsed.errors;
+  if (parsed.raw !== undefined) error.body = parsed.raw;
+  if (redirecting) error.redirecting = true;
 
-    default:
-      throw createAPIError(
-        defaultMessage,
-        statusCode,
-        errorMessages.length > 0
-          ? errorMessages
-          : [`Request failed with status ${statusCode}`],
-        url,
-      );
-  }
+  throw error;
 }
 
 /**
@@ -355,6 +428,22 @@ function createAPIError(
 }
 
 /**
+ * The error thrown when the back-end could not be reached (fetch threw, or the
+ * proxy answered 502-504). statusCode 0 keeps it distinct from any HTTP refusal.
+ */
+function createNetworkError(endpoint: string): APIError {
+  return {
+    ...createAPIError(
+      'Network error: Unable to connect to the API server',
+      0,
+      ['Please check your internet connection and try again.'],
+      endpoint,
+    ),
+    isNetworkError: true,
+  };
+}
+
+/**
  * Sanitizes request body for safe logging by removing sensitive fields
  * Customize the sensitiveFields array based on your application's needs
  */
@@ -391,6 +480,14 @@ function sanitizeBodyForLogging(body: BodyInit | null): unknown {
 }
 
 /**
+ * True for the authentication endpoints, whose request bodies (email and
+ * password) are never logged, even redacted (BR12 / POPIA).
+ */
+function isAuthEndpoint(url: string): boolean {
+  return /\/auth\//.test(url);
+}
+
+/**
  * Logs API request details in development mode
  * Automatically sanitizes sensitive fields for security
  */
@@ -400,7 +497,7 @@ function logRequest(url: string, method: string, body?: BodyInit | null): void {
     console.log('URL:', url);
     console.log('Method:', method);
 
-    if (body) {
+    if (body && !isAuthEndpoint(url)) {
       console.log('Body:', sanitizeBodyForLogging(body));
     }
 
