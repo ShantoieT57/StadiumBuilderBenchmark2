@@ -11,7 +11,8 @@
     "introducesSharedSurface": false,
     "unverifiedAssumptions": [
       "Changing a row so it breaks a rule blocks \"Check again\" until fixed; untouched rows never block it. Right behaviour?",
-      "\"Save changes\" with nothing changed shows a short \"No changes to save.\" message instead of being greyed out. OK?"
+      "\"Save changes\" with nothing changed shows a short \"No changes to save.\" message instead of being greyed out. OK?",
+      "Not-waiting notice says e.g. \"Its current status is Completed.\" (\"Failed, cancelled\" for a cancelled file). Wording OK?"
     ],
     "manualTestResults": []
   },
@@ -25,20 +26,20 @@
       "completedAt": "2026-10-15T13:22:16.955Z"
     },
     "2": {
-      "status": "in-progress",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
       "startedAt": "2026-10-15T13:22:16.956Z",
-      "completedAt": null
+      "completedAt": "2026-10-15T13:28:22.299Z"
     },
     "3": {
-      "status": "pending",
+      "status": "in-progress",
       "commit": null,
       "e2eStatus": "deferred",
-      "startedAt": null,
+      "startedAt": "2026-10-15T13:28:22.300Z",
       "completedAt": null
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-15T13:22:16.956Z"
+  "lastUpdated": "2026-10-15T13:28:22.300Z"
 }

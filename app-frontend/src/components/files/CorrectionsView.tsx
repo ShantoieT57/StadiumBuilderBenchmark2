@@ -18,6 +18,12 @@
  *   the i-th sent row's field; anything else, and network failures (with
  *   "Try again", which resends the same request), show above the actions.
  * - Never logs row values or request bodies (NFR-4).
+ * - Not waiting (BR6): a 409 on opening, on a live refresh, or from Save changes /
+ *   Check again replaces the form with a notice (the back-end's message, the
+ *   file's current status in words, "View file details").
+ * - Live (NFR-5): `file-changed` for this file and `resync` refetch the file and
+ *   its invalid rows in place; unsent edits are kept (merged by row id) while the
+ *   file still waits; a failed refresh keeps the form with RefreshFailedNotice.
  */
 
 import Link from 'next/link';
@@ -27,13 +33,16 @@ import {
   useCallback,
   useEffect,
   useId,
+  useImperativeHandle,
   useRef,
   useState,
   type ReactNode,
+  type Ref,
 } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 
+import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
 import {
   FileCancelledBadge,
   FileStatusBadge,
@@ -43,6 +52,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useEvents } from '@/contexts/EventsContext';
 import { useToast } from '@/contexts/ToastContext';
 import {
   getFile,
@@ -56,6 +66,7 @@ import {
   isRedirectingToSignIn,
   statusOf,
 } from '@/lib/api/errors';
+import { formatFileStatus } from '@/lib/format/file';
 import {
   CORRECTION_FIELDS,
   correctionsSchema,
@@ -80,6 +91,7 @@ const GENERIC_PROBLEM_MESSAGE = 'Something went wrong. Please try again.';
 const UNREACHABLE_MESSAGE =
   "We can't reach the app right now. Check your connection and try again.";
 export const FILE_NOT_FOUND_TITLE = 'File not found';
+export const NOT_WAITING_MESSAGE = 'This file is not waiting for corrections.';
 
 /** The confirmation once a check loads the file (R2). */
 export function checkedAndLoadedMessage(fileName: string): string {
@@ -310,14 +322,24 @@ function RowCard({
   );
 }
 
+/** What the screen asks of the mounted form on a live refresh. */
+interface CorrectionsFormHandle {
+  /** Shows the latest rows, keeping any edits not yet sent (by row id). */
+  mergeRows: (next: InvalidRowList) => void;
+}
+
 function CorrectionsForm({
   file,
   initialRows,
   onFileChange,
+  onNotWaiting,
+  handleRef,
 }: {
   file: FileDetails;
   initialRows: InvalidRowList;
   onFileChange: (file: FileDetails) => void;
+  onNotWaiting: (message: string) => void;
+  handleRef: Ref<CorrectionsFormHandle>;
 }) {
   const fileId = file.id;
   const router = useRouter();
@@ -352,6 +374,24 @@ function CorrectionsForm({
     setList(next);
     form.reset({ rows: next.rows.map(valuesOf) });
   };
+
+  // A live refresh while the file still waits: rows fixed elsewhere drop out,
+  // the others take the server's values unless the Importer has edited them.
+  useImperativeHandle(handleRef, () => ({
+    mergeRows: (next: InvalidRowList) => {
+      const before = baselineRef.current;
+      const current = new Map(
+        form.getValues().rows.map((values) => [values.id, values]),
+      );
+      const merged = next.rows.map((row) => {
+        const values = current.get(row.id);
+        return values && isChanged(values, before) ? values : valuesOf(row);
+      });
+      baselineRef.current = baselineOf(next.rows);
+      setList(next);
+      form.reset({ rows: merged });
+    },
+  }));
 
   const changedCorrections = (): RowCorrection[] =>
     form
@@ -393,6 +433,11 @@ function CorrectionsForm({
     const status = statusOf(error);
     if (isNetworkError(error)) {
       setProblem({ message: UNREACHABLE_MESSAGE, retry: request });
+      return;
+    }
+    if (status === 409) {
+      // The file no longer takes corrections: the edits cannot be sent (BR6).
+      onNotWaiting(serverWordsOf(error) || NOT_WAITING_MESSAGE);
       return;
     }
     if (status === 400 && isAPIError(error) && error.errors) {
@@ -567,36 +612,135 @@ function CorrectionsForm({
   );
 }
 
-interface Loaded {
+/** One read of the file and its invalid rows. */
+type Fetched =
+  | { kind: 'waiting'; file: FileDetails; rows: InvalidRowList }
+  | { kind: 'notWaiting'; file: FileDetails; message: string }
+  | { kind: 'failed'; error: unknown };
+
+async function fetchCorrections(fileId: string): Promise<Fetched> {
+  const [file, rows] = await Promise.allSettled([
+    getFile(fileId),
+    getInvalidRows(fileId),
+  ]);
+  if (file.status === 'rejected') {
+    return { kind: 'failed', error: file.reason ?? new Error('Load failed') };
+  }
+  if (rows.status === 'fulfilled') {
+    return { kind: 'waiting', file: file.value, rows: rows.value };
+  }
+  if (statusOf(rows.reason) === 409) {
+    return {
+      kind: 'notWaiting',
+      file: file.value,
+      message: serverWordsOf(rows.reason) || NOT_WAITING_MESSAGE,
+    };
+  }
+  return { kind: 'failed', error: rows.reason ?? new Error('Load failed') };
+}
+
+type ViewState =
+  | { kind: 'loading' }
+  | { kind: 'failed'; error: unknown }
+  | {
+      kind: 'waiting';
+      file: FileDetails;
+      /** The rows the form starts from; the mounted form owns them afterwards. */
+      initialRows: InvalidRowList;
+      /** Remounts the form when the screen comes back to waiting. */
+      formKey: number;
+      refreshFailed: boolean;
+    }
+  | { kind: 'notWaiting'; file: FileDetails; message: string };
+
+/** The file can no longer take corrections: the notice instead of the form. */
+function NotWaitingNotice({
+  file,
+  message,
+}: {
   file: FileDetails;
-  rows: InvalidRowList;
+  message: string;
+}) {
+  const status = file.isCancelled
+    ? `${formatFileStatus(file.status)}, cancelled`
+    : formatFileStatus(file.status);
+  return (
+    <Alert>
+      <AlertTitle>{message}</AlertTitle>
+      <AlertDescription>
+        <p>Its current status is {status}.</p>
+        <Button asChild variant="outline" size="sm" className="mt-2">
+          <Link href={fileDetailsHref(file.id)}>View file details</Link>
+        </Button>
+      </AlertDescription>
+    </Alert>
+  );
 }
 
 export function CorrectionsView({ fileId }: { fileId: string }) {
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [failure, setFailure] = useState<unknown>(null);
+  const [view, setView] = useState<ViewState>({ kind: 'loading' });
   const requestRef = useRef(0);
+  const formRef = useRef<CorrectionsFormHandle>(null);
 
-  // State is only set from the promise callbacks, never synchronously in an effect.
+  // Opening and every live refresh. State is only set from the promise
+  // callbacks, never synchronously in an effect.
   const load = useCallback((): Promise<void> => {
     const request = ++requestRef.current;
-    return Promise.all([getFile(fileId), getInvalidRows(fileId)]).then(
-      ([file, rows]) => {
-        if (request !== requestRef.current) return;
-        setLoaded({ file, rows });
-        setFailure(null);
-      },
-      (error: unknown) => {
-        if (request !== requestRef.current) return;
+    return fetchCorrections(fileId).then((fetched) => {
+      if (request !== requestRef.current) return;
+      if (fetched.kind === 'failed') {
+        const { error } = fetched;
         if (isRedirectingToSignIn(error)) return;
-        setFailure(error ?? new Error('Load failed'));
-      },
-    );
+        setView((current) => {
+          // A later load that fails keeps the form (a 404 still shows not found).
+          if (current.kind === 'waiting' && statusOf(error) !== 404) {
+            return { ...current, refreshFailed: true };
+          }
+          if (current.kind === 'notWaiting' && statusOf(error) !== 404) {
+            return current;
+          }
+          return { kind: 'failed', error };
+        });
+        return;
+      }
+      if (fetched.kind === 'notWaiting') {
+        setView({ ...fetched });
+        return;
+      }
+      // Still waiting: the mounted form keeps the Importer's unsent edits.
+      const form = formRef.current;
+      if (form) form.mergeRows(fetched.rows);
+      setView((current) =>
+        form && current.kind === 'waiting'
+          ? { ...current, file: fetched.file, refreshFailed: false }
+          : {
+              kind: 'waiting',
+              file: fetched.file,
+              initialRows: fetched.rows,
+              formKey: request,
+              refreshFailed: false,
+            },
+      );
+    });
   }, [fileId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Live refresh in place: updates for this file, and resync after a gap.
+  const { subscribe } = useEvents();
+  useEffect(() => {
+    const unsubscribers = [
+      subscribe('file-changed', (event) => {
+        if (event.fileId === fileId) void load();
+      }),
+      subscribe('resync', () => {
+        void load();
+      }),
+    ];
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [subscribe, load, fileId]);
 
   // Ignore answers that arrive after the screen has gone.
   useEffect(
@@ -607,27 +751,71 @@ export function CorrectionsView({ fileId }: { fileId: string }) {
   );
 
   const retry = () => {
-    setFailure(null);
+    setView({ kind: 'loading' });
     void load();
   };
 
   const changeFile = useCallback((file: FileDetails) => {
-    setLoaded((current) => (current ? { ...current, file } : current));
+    setView((current) =>
+      current.kind === 'waiting' ? { ...current, file } : current,
+    );
   }, []);
 
+  // Save changes / Check again found the file no longer waiting: show the
+  // notice at once, then bring its status up to date.
+  const showNotWaiting = useCallback(
+    (message: string) => {
+      const request = ++requestRef.current;
+      setView((current) =>
+        current.kind === 'waiting'
+          ? { kind: 'notWaiting', file: current.file, message }
+          : current,
+      );
+      getFile(fileId).then(
+        (file) => {
+          if (request !== requestRef.current) return;
+          setView((current) =>
+            current.kind === 'notWaiting' ? { ...current, file } : current,
+          );
+        },
+        () => {
+          // The notice already stands; the earlier status stays.
+        },
+      );
+    },
+    [fileId],
+  );
+
   let content: ReactNode;
-  if (loaded !== null) {
+  if (view.kind === 'waiting') {
     content = (
       <>
-        <CorrectionsHeader file={loaded.file} />
+        <CorrectionsHeader file={view.file} />
+        {view.refreshFailed && (
+          <RefreshFailedNotice
+            onRetry={() => {
+              void load();
+            }}
+          />
+        )}
         <CorrectionsForm
-          file={loaded.file}
-          initialRows={loaded.rows}
+          key={view.formKey}
+          handleRef={formRef}
+          file={view.file}
+          initialRows={view.initialRows}
           onFileChange={changeFile}
+          onNotWaiting={showNotWaiting}
         />
       </>
     );
-  } else if (failure !== null && statusOf(failure) === 404) {
+  } else if (view.kind === 'notWaiting') {
+    content = (
+      <>
+        <CorrectionsHeader file={view.file} />
+        <NotWaitingNotice file={view.file} message={view.message} />
+      </>
+    );
+  } else if (view.kind === 'failed' && statusOf(view.error) === 404) {
     content = (
       <>
         <h1 className="text-2xl font-semibold">{FILE_NOT_FOUND_TITLE}</h1>
@@ -636,10 +824,10 @@ export function CorrectionsView({ fileId }: { fileId: string }) {
         </p>
       </>
     );
-  } else if (failure !== null) {
-    const message = isNetworkError(failure)
+  } else if (view.kind === 'failed') {
+    const message = isNetworkError(view.error)
       ? UNREACHABLE_MESSAGE
-      : serverWordsOf(failure) || GENERIC_PROBLEM_MESSAGE;
+      : serverWordsOf(view.error) || GENERIC_PROBLEM_MESSAGE;
     content = (
       <>
         <h1 className="text-2xl font-semibold">Corrections</h1>
