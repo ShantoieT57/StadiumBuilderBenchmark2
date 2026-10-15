@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 
+import { FileFilters } from '@/components/files/FileFilters';
 import { FilesList } from '@/components/files/FilesList';
 import { RouteGuard } from '@/components/shell/RouteGuard';
 import { requireSession } from '@/lib/auth/requireSession';
@@ -19,7 +20,9 @@ export default async function DashboardPage() {
           fallback={<p className="text-muted-foreground">Loading files…</p>}
         >
           <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
-            {/* Slot: <FileFilters /> in a `min-w-0 lg:w-72 lg:shrink-0` column. */}
+            <div className="min-w-0 lg:w-72 lg:shrink-0">
+              <FileFilters />
+            </div>
             <div className="min-w-0 flex-1">
               <FilesList role={user.role} />
             </div>

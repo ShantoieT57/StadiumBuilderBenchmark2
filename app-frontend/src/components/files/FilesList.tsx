@@ -51,13 +51,16 @@ import {
 import { useEvents } from '@/contexts/EventsContext';
 import { getFiles } from '@/lib/api/endpoints';
 import { isNetworkError, isRedirectingToSignIn } from '@/lib/api/errors';
+import { activeFileFilters } from '@/lib/files/activeFilters';
 import {
   FILE_PAGE_SIZES,
   hasFileFilters,
   toFilesQuery,
+  withFileFilters,
   withFilePage,
   withFilePageSize,
   withFileSort,
+  type FileListFilters,
   type FileListState,
   type FilePageSize,
 } from '@/lib/files/listQuery';
@@ -72,7 +75,7 @@ import type {
 
 export const LOADING_FILES_MESSAGE = 'Loading files';
 export const NO_FILES_MESSAGE = 'No files yet';
-export const NO_MATCHING_FILES_MESSAGE = 'No files match your filters.';
+export const NO_MATCHING_FILES_MESSAGE = 'No files match your filters';
 /** Shown while a changed view (sort, page, filters) loads over the previous rows. */
 export const UPDATING_MESSAGE = 'Updating…';
 export const FILES_LOAD_FAILED_TITLE = 'Files could not be loaded';
@@ -254,6 +257,42 @@ function FilesCompactList({
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Filters that match no file: the active filters and one action to clear them. */
+function NoMatch({
+  filters,
+  onClear,
+}: {
+  filters: FileListFilters;
+  onClear: () => void;
+}) {
+  const headingId = useId();
+  const entries = activeFileFilters(filters);
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="flex min-w-0 flex-col gap-3 rounded-lg border p-4"
+    >
+      <h2 id={headingId} className="text-lg font-semibold">
+        {NO_MATCHING_FILES_MESSAGE}
+      </h2>
+      <p className="text-muted-foreground text-sm">Filters in use:</p>
+      <ul
+        aria-label="Filters in use"
+        className="flex list-disc flex-col gap-1 pl-5 text-sm break-all"
+      >
+        {entries.map((entry) => (
+          <li key={entry.key}>{entry.text}</li>
+        ))}
+      </ul>
+      <div>
+        <Button type="button" variant="outline" onClick={onClear}>
+          Clear all filters
+        </Button>
+      </div>
+    </section>
   );
 }
 
@@ -441,7 +480,10 @@ export function FilesList({ role, rowActions }: FilesListProps) {
     );
   } else if (result.totalCount === 0) {
     content = (
-      <p className="text-muted-foreground">{NO_MATCHING_FILES_MESSAGE}</p>
+      <NoMatch
+        filters={view.filters}
+        onClear={() => navigate(withFileFilters(view, {}))}
+      />
     );
   } else if (result.items.length === 0) {
     // Past the last page (an old link, or files removed by a live refresh):
