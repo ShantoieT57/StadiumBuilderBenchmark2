@@ -8,11 +8,28 @@
       "file-dashboard-and-details"
     ],
     "introducesSharedSurface": false,
-    "unverifiedAssumptions": [],
+    "unverifiedAssumptions": [
+      "A file over 10 MB should show \"The file is too large. Files can be up to 10 MB.\" through the app proxy (not a generic upload failure). Claude verifies this against the real back-end at manual test."
+    ],
     "manualTestResults": []
   },
-  "phase": "PLAN",
-  "stories": {},
+  "phase": "BUILD",
+  "stories": {
+    "1": {
+      "status": "pending",
+      "commit": null,
+      "e2eStatus": "deferred",
+      "startedAt": null,
+      "completedAt": null
+    },
+    "2": {
+      "status": "pending",
+      "commit": null,
+      "e2eStatus": "deferred",
+      "startedAt": null,
+      "completedAt": null
+    }
+  },
   "halt": null,
   "lastUpdated": "2026-10-15T12:09:46.240Z"
 }
