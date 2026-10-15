@@ -72,7 +72,7 @@ export async function apiClient<T = unknown>(
 
     // Handle specific error status codes
     if (!response.ok) {
-      await handleErrorResponse(response, url);
+      throw await apiErrorFromResponse(response, url);
     }
 
     // Handle successful responses
@@ -303,23 +303,24 @@ const STATUS_MESSAGES: Partial<
 };
 
 /**
- * Handles error responses from the API.
+ * Builds the APIError for an error response from the API (shared with the
+ * XMLHttpRequest uploader in ./upload.ts, so both throw the same shape).
  *
- * The thrown APIError keeps the HTTP status and the parsed body so callers can
+ * The APIError keeps the HTTP status and the parsed body so callers can
  * branch on them: `message` (ErrorResponse / 409), `reason` (401), `errors`
  * (400 ValidationProblem) and the raw `body`. A 502-504 from the same-origin
- * proxy means the back-end could not be reached and is thrown as the same
+ * proxy means the back-end could not be reached and becomes the same
  * network error a failed fetch produces (statusCode 0).
  */
-async function handleErrorResponse(
+export async function apiErrorFromResponse(
   response: Response,
   url: string,
-): Promise<never> {
+): Promise<APIError> {
   const statusCode = response.status as HTTPStatusCode;
   const parsed = await parseErrorBody(response);
 
   if (UNREACHABLE_STATUSES.includes(statusCode)) {
-    throw { ...createNetworkError(url), body: parsed.raw };
+    return { ...createNetworkError(url), body: parsed.raw };
   }
 
   // Central 401 handling (BR4): the session has ended, so leave for sign-in
@@ -367,7 +368,7 @@ async function handleErrorResponse(
   if (parsed.raw !== undefined) error.body = parsed.raw;
   if (redirecting) error.redirecting = true;
 
-  throw error;
+  return error;
 }
 
 /**
@@ -431,7 +432,7 @@ function createAPIError(
  * The error thrown when the back-end could not be reached (fetch threw, or the
  * proxy answered 502-504). statusCode 0 keeps it distinct from any HTTP refusal.
  */
-function createNetworkError(endpoint: string): APIError {
+export function createNetworkError(endpoint: string): APIError {
   return {
     ...createAPIError(
       'Network error: Unable to connect to the API server',

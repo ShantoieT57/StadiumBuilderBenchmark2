@@ -11,7 +11,8 @@
  * The session is the HttpOnly `txn_session` cookie, so no auth header is injected.
  *
  * NOT generated here (transport left to the epics that build them):
- * - POST /files (UploadFile): multipart/form-data; see `UploadFileFormFields`.
+ * - POST /files (UploadFile): multipart/form-data with upload progress; built in
+ *   ./upload.ts (XMLHttpRequest) and re-exported below as `uploadFile`.
  * - GET /transactions/export (ExportTransactions): CSV attachment download; see `ExportTransactionsQuery`.
  * - GET /events (StreamEvents): text/event-stream; see `SseEventName` and `SseEventData`.
  *
@@ -65,6 +66,13 @@ export const getDashboardSummary = () =>
 // ---------------------------------------------------------------------------
 // Files
 // ---------------------------------------------------------------------------
+
+/**
+ * POST /files - multipart upload with progress (XMLHttpRequest; see ./upload.ts).
+ * Importers only. Rejects with the same `APIError` shape as the client.
+ */
+export { uploadFile } from '@/lib/api/upload';
+export type { UploadFileOptions } from '@/lib/api/upload';
 
 /** GET /files - one page of files, sorted and filtered. */
 export const getFiles = (params?: ListFilesQuery) =>

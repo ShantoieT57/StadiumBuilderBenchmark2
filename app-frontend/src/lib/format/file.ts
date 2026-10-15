@@ -46,3 +46,12 @@ export function formatLastProcessed(value: string | null): string {
 export function formatRowCount(value: number | null): string {
   return value === null ? NOT_COUNTED_YET : String(value);
 }
+
+const KB = 1024;
+const MB = KB * 1024;
+
+/** A file size in KB below 1 MB, else MB, to one decimal place (e.g. "2.4 KB"). */
+export function formatFileSize(bytes: number): string {
+  if (bytes < MB) return `${(bytes / KB).toFixed(1)} KB`;
+  return `${(bytes / MB).toFixed(1)} MB`;
+}
