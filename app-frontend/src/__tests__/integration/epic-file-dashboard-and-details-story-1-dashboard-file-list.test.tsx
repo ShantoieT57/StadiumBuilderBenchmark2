@@ -468,4 +468,44 @@ describe('Epic file-dashboard-and-details, Story 1: Dashboard file list', () => 
     ).not.toBeInTheDocument();
     expect(FakeEventSource.connections).toHaveLength(1);
   });
+
+  // AC-4, AC-6
+  it('keeps the loaded files with a small problem and Retry when a live refresh fails', async () => {
+    const user = userEvent.setup();
+
+    renderList();
+    const table = await screen.findByRole('table');
+    await waitFor(() =>
+      expect(rowFor(table, 'may-payroll.csv')).toBeInTheDocument(),
+    );
+    const [connection] = FakeEventSource.connections;
+
+    // The refresh after a resync fails: the rows stay, with a small problem.
+    mockGet.mockRejectedValueOnce({
+      message: 'Something went wrong',
+      statusCode: 500,
+    });
+    act(() => connection.emit('resync', {}));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Couldn't refresh — showing earlier data",
+    );
+    expect(rowFor(table, 'may-payroll.csv')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Files could not be loaded'),
+    ).not.toBeInTheDocument();
+
+    // Retry loads again in place, showing the back-end's latest files.
+    dataset = dataset.map((file) =>
+      file.id === DASHBOARD_FILE_IDS.uploaded
+        ? { ...file, status: 'Processing' }
+        : file,
+    );
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() =>
+      expect(
+        within(rowFor(table, 'may-payroll.csv')).getByText('Processing'),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });

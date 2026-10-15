@@ -21,6 +21,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
 import { useFileListQuery } from '@/components/files/useFileListQuery';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -345,34 +346,38 @@ function ActiveFilterChips({
           {entries.map((entry) => {
             const removeLabel = `Remove ${entry.label} filter`;
             return (
-              <li
+              <Badge
+                asChild
                 key={entry.key}
-                className="bg-secondary text-secondary-foreground inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border py-0.5 pr-0.5 pl-3 text-sm"
+                variant="secondary"
+                className="border-border max-w-full min-w-0 justify-start gap-1 overflow-visible py-0.5 pr-0.5 pl-3 text-sm font-normal whitespace-normal"
               >
-                {entry.key === 'visibility' ? (
-                  <span className="min-w-0 break-all">{entry.value}</span>
-                ) : (
-                  <span className="min-w-0 break-all">
-                    <span className="font-medium">{entry.label}:</span>{' '}
-                    {entry.value}
-                  </span>
-                )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 shrink-0 rounded-full"
-                      aria-label={removeLabel}
-                      onClick={() => onRemove(entry)}
-                    >
-                      <XIcon aria-hidden="true" className="size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{removeLabel}</TooltipContent>
-                </Tooltip>
-              </li>
+                <li>
+                  {entry.key === 'visibility' ? (
+                    <span className="min-w-0 break-all">{entry.value}</span>
+                  ) : (
+                    <span className="min-w-0 break-all">
+                      <span className="font-medium">{entry.label}:</span>{' '}
+                      {entry.value}
+                    </span>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 shrink-0 rounded-full"
+                        aria-label={removeLabel}
+                        onClick={() => onRemove(entry)}
+                      >
+                        <XIcon aria-hidden="true" className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{removeLabel}</TooltipContent>
+                  </Tooltip>
+                </li>
+              </Badge>
             );
           })}
         </ul>

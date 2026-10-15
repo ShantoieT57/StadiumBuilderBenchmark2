@@ -39,3 +39,9 @@
 - **Uploaded or processing files.** They say their transactions are not available yet.
 - **Cancelled files.** They say when and by whom, and that the original was discarded.
 - **Live refresh.** The screen refreshes on its own when the open file changes.
+
+## Epic-end code review
+
+- **Failed refresh keeps data on screen.** If a list, the dashboard counts or a details screen fails to refresh after it has loaded, it keeps showing what it had, with a "Couldn't refresh — showing earlier data" note and Retry. This also applies to the transactions screens.
+- **File counts show active files.** Clicking a file count always shows active files with that status, because the counts only cover active files.
+- **Filter chips.** They now use the standard Badge component, on both list screens.

@@ -326,4 +326,69 @@ describe('Epic file-dashboard-and-details, Story 3: Dashboard counts', () => {
       strip.getByRole('link', { name: countName('Imported', 12) }),
     ).toBeInTheDocument();
   });
+
+  // AC-2
+  it('links a file count to that status among active files, keeping the sort, page size and other filters', async () => {
+    // Cancelled files are shown, but the counts only cover active files.
+    navigation.search = new URLSearchParams({
+      sortBy: 'FileName',
+      sortDirection: 'Asc',
+      pageSize: '5',
+      page: '2',
+      fileName: 'april',
+      visibility: 'Cancelled',
+    });
+    renderCounts();
+
+    const link = await within(summaryRegion()).findByRole('link', {
+      name: countName('Completed', 4),
+    });
+    const url = new URL(link.getAttribute('href') ?? '', 'http://localhost');
+    expect(url.pathname).toBe('/dashboard');
+    expect(url.searchParams.get('status')).toBe('Completed');
+    expect(url.searchParams.get('visibility')).toBeNull();
+    expect(url.searchParams.get('page')).toBeNull();
+    expect(url.searchParams.get('sortBy')).toBe('FileName');
+    expect(url.searchParams.get('sortDirection')).toBe('Asc');
+    expect(url.searchParams.get('pageSize')).toBe('5');
+    expect(url.searchParams.get('fileName')).toBe('april');
+  });
+
+  // AC-4, AC-5
+  it('keeps the counts with a small problem and Retry when a live refresh fails', async () => {
+    const user = userEvent.setup();
+    renderCounts();
+    const strip = within(summaryRegion());
+    expect(
+      await strip.findByRole('link', { name: countName('Processing', 1) }),
+    ).toBeInTheDocument();
+    const [connection] = FakeEventSource.connections;
+
+    mockGet.mockRejectedValueOnce({
+      message: 'Something went wrong',
+      statusCode: 500,
+    });
+    act(() =>
+      connection.emit('file-changed', {
+        fileId: DASHBOARD_FILE_IDS.processing,
+        status: 'Completed',
+        isCancelled: false,
+      }),
+    );
+    expect(await strip.findByRole('alert')).toHaveTextContent(
+      "Couldn't refresh — showing earlier data",
+    );
+    expect(
+      strip.getByRole('link', { name: countName('Processing', 1) }),
+    ).toBeInTheDocument();
+
+    summary = createDashboardSummary({
+      files: { processing: 0, completed: 5 },
+    });
+    await user.click(strip.getByRole('button', { name: 'Retry' }));
+    expect(
+      await strip.findByRole('link', { name: countName('Completed', 5) }),
+    ).toBeInTheDocument();
+    expect(strip.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });

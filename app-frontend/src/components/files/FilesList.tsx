@@ -9,6 +9,8 @@
  *   key details and an actions area holding the details link.
  * - Refetches in place on the shell's `file-changed`, `transactions-changed` and
  *   `resync` events, keeping the current view (no connection of its own).
+ * - A failed first load replaces the list with a problem + Retry; a failed later
+ *   load keeps the rows on screen with a small "Couldn't refresh" notice + Retry.
  * - Only file names and counts are shown; nothing is written to the console.
  */
 
@@ -24,6 +26,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
 import {
   FileCancelledBadge,
   FileStatusBadge,
@@ -90,6 +93,8 @@ interface LoadedPage {
   page: FilePage;
   /** The `GET /files` query (as JSON) this page answers. */
   queryKey: string;
+  /** The filters of the view this page answers (may lag the URL while updating). */
+  filters: FileListFilters;
 }
 
 interface Column {
@@ -383,26 +388,35 @@ export function FilesList({ role, rowActions }: FilesListProps) {
   // older query the rows stay in place and the list shows it is updating.
   const [loaded, setLoaded] = useState<LoadedPage | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
-  const queryRef = useRef<ListFilesQuery>(query);
+  const queryRef = useRef({ query, filters: view.filters });
   const requestRef = useRef(0);
 
   // State is only ever set from the promise callbacks (after the response
   // arrives), never synchronously while an effect is running.
-  const load = useCallback((params: ListFilesQuery): Promise<void> => {
-    const request = ++requestRef.current;
-    return getFiles(params).then(
-      (page) => {
-        if (request !== requestRef.current) return;
-        setLoaded({ page, queryKey: JSON.stringify(params) });
-        setFailure(null);
-      },
-      (error: unknown) => {
-        if (request !== requestRef.current) return;
-        if (isRedirectingToSignIn(error)) return;
-        setFailure(error ?? new Error('Load failed'));
-      },
-    );
-  }, []);
+  const load = useCallback(
+    ({
+      query: params,
+      filters,
+    }: {
+      query: ListFilesQuery;
+      filters: FileListFilters;
+    }): Promise<void> => {
+      const request = ++requestRef.current;
+      return getFiles(params).then(
+        (page) => {
+          if (request !== requestRef.current) return;
+          setLoaded({ page, queryKey: JSON.stringify(params), filters });
+          setFailure(null);
+        },
+        (error: unknown) => {
+          if (request !== requestRef.current) return;
+          if (isRedirectingToSignIn(error)) return;
+          setFailure(error ?? new Error('Load failed'));
+        },
+      );
+    },
+    [],
+  );
 
   // Remember the view so the details screen's back link returns to it.
   const listSearch = useMemo(() => toFileListSearch(view), [view]);
@@ -411,9 +425,9 @@ export function FilesList({ role, rowActions }: FilesListProps) {
   }, [listSearch]);
 
   useEffect(() => {
-    queryRef.current = query;
-    void load(query);
-  }, [query, load]);
+    queryRef.current = { query, filters: view.filters };
+    void load(queryRef.current);
+  }, [query, view.filters, load]);
 
   // Ignore answers that arrive after the list has gone.
   useEffect(
@@ -442,12 +456,17 @@ export function FilesList({ role, rowActions }: FilesListProps) {
   };
 
   const result = loaded?.page ?? null;
-  const showUpdates = loaded !== null && failure === null;
-  const updating = showUpdates && loaded.queryKey !== queryKey;
-  const filtered = hasFileFilters(view.filters);
+  // Once a page has loaded, a failed refresh keeps it on screen with a small
+  // notice; only a failed first load replaces the list with the problem.
+  const refreshFailed = loaded !== null && failure !== null;
+  const updating =
+    loaded !== null && failure === null && loaded.queryKey !== queryKey;
+  // Judged from the filters the shown page answers, so clearing the filters
+  // does not flash "No files yet" over the old empty result while it updates.
+  const filtered = loaded !== null && hasFileFilters(loaded.filters);
 
   let content: ReactNode;
-  if (failure !== null) {
+  if (failure !== null && result === null) {
     content = (
       <Alert variant="destructive">
         <AlertTitle>{FILES_LOAD_FAILED_TITLE}</AlertTitle>
@@ -489,7 +508,7 @@ export function FilesList({ role, rowActions }: FilesListProps) {
   } else if (result.totalCount === 0) {
     content = (
       <NoMatch
-        filters={view.filters}
+        filters={loaded?.filters ?? view.filters}
         onClear={() => navigate(withFileFilters(view, {}))}
       />
     );
@@ -536,11 +555,12 @@ export function FilesList({ role, rowActions }: FilesListProps) {
     <div className="flex min-w-0 flex-col gap-2">
       {/* Always present once loaded (a live region announces changes), and a
           fixed height so the rows below do not move when it fills. */}
-      {showUpdates && (
+      {loaded !== null && (
         <p role="status" className="text-muted-foreground min-h-5 text-sm">
           {updating ? UPDATING_MESSAGE : null}
         </p>
       )}
+      {refreshFailed && <RefreshFailedNotice onRetry={retry} />}
       <div
         aria-busy={updating ? true : undefined}
         className="flex min-w-0 flex-col gap-4"

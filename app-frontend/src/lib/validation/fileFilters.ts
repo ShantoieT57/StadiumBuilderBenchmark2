@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { isCalendarDay } from '@/lib/files/listQuery';
+
 /**
  * The Dashboard file filter form's typed fields (R5, NFR-4).
  *
@@ -10,25 +12,6 @@ import { z } from 'zod';
 export const PROCESSED_FROM_AFTER_TO_MESSAGE =
   'Processed from must not be after the Processed to date.';
 export const PROCESSED_DATE_FORMAT_MESSAGE = 'Enter a valid date.';
-
-const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/** Whether `value` is a real calendar day in `yyyy-MM-dd`. */
-function isCalendarDay(value: string): boolean {
-  const match = DATE_PATTERN.exec(value);
-  if (!match) return false;
-  const [year, month, day] = [
-    Number(match[1]),
-    Number(match[2]),
-    Number(match[3]),
-  ];
-  const check = new Date(year, month - 1, day);
-  return (
-    check.getFullYear() === year &&
-    check.getMonth() === month - 1 &&
-    check.getDate() === day
-  );
-}
 
 const dateField = z
   .string()

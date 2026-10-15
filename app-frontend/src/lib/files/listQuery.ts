@@ -85,23 +85,27 @@ function text(params: SearchParamsReader, name: string): string | undefined {
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** A real calendar day in `yyyy-MM-dd`, else undefined. */
-function date(params: SearchParamsReader, name: string): string | undefined {
-  const value = text(params, name);
-  if (value === undefined) return undefined;
+/** Whether `value` is a real calendar day in `yyyy-MM-dd`. */
+export function isCalendarDay(value: string): boolean {
   const match = DATE_PATTERN.exec(value);
-  if (!match) return undefined;
+  if (!match) return false;
   const [year, month, day] = [
     Number(match[1]),
     Number(match[2]),
     Number(match[3]),
   ];
   const check = new Date(year, month - 1, day);
-  return check.getFullYear() === year &&
+  return (
+    check.getFullYear() === year &&
     check.getMonth() === month - 1 &&
     check.getDate() === day
-    ? value
-    : undefined;
+  );
+}
+
+/** A real calendar day in `yyyy-MM-dd`, else undefined. */
+function date(params: SearchParamsReader, name: string): string | undefined {
+  const value = text(params, name);
+  return value !== undefined && isCalendarDay(value) ? value : undefined;
 }
 
 function pick<T extends string>(
@@ -185,7 +189,9 @@ function localDayTime(
     seconds,
     ms,
   );
-  return `${day}T${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}.${pad3(ms)}${localOffset(instant)}`;
+  // Written from the instant's own local fields, so a wall-clock time skipped by
+  // a DST change (e.g. midnight on a spring-forward day) maps to the real instant.
+  return `${instant.getFullYear()}-${pad2(instant.getMonth() + 1)}-${pad2(instant.getDate())}T${pad2(instant.getHours())}:${pad2(instant.getMinutes())}:${pad2(instant.getSeconds())}.${pad3(instant.getMilliseconds())}${localOffset(instant)}`;
 }
 
 /** `2026-04-30` -> `2026-04-30T00:00:00.000+02:00` (start of the local day). */

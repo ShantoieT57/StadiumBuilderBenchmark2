@@ -4,10 +4,13 @@
  * The Dashboard summary strip: how many (non-cancelled) files are in each status
  * and how many of their transactions are Imported, Approved and Rejected.
  *
- * - Each count is a link: a file status filters the Dashboard list (keeping the
- *   sort, page size and other filters, back to page 1); a transaction status
- *   opens the Transactions list filtered to it.
+ * - Each count is a link: a file status filters the Dashboard list to that
+ *   status among active files (the counts cover only non-cancelled files, so the
+ *   Show filter goes back to Active; the sort, page size and other filters are
+ *   kept, back to page 1); a transaction status opens the Transactions list
+ *   filtered to it.
  * - Owns its loading / problem states, so the file list beside it never waits.
+ *   A failed refresh keeps the counts on screen with a small notice + Retry.
  * - Refetches in place on the shell's `file-changed`, `transactions-changed` and
  *   `resync` events (no connection of its own).
  * - Counts are shown exactly as the back-end returns them.
@@ -22,6 +25,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
 import { useFileListQuery } from '@/components/files/useFileListQuery';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -34,6 +38,7 @@ import {
   withFileFilters,
   type FileListState,
 } from '@/lib/files/listQuery';
+import { dashboardListHref } from '@/lib/files/listReturn';
 import { formatFileStatus } from '@/lib/format/file';
 import { formatTransactionStatus } from '@/lib/format/transaction';
 import {
@@ -55,7 +60,6 @@ export const COUNTS_LOAD_FAILED_TITLE = 'Counts could not be loaded';
 const LOAD_FAILED_MESSAGE = 'Something went wrong. Please try again.';
 const UNREACHABLE_MESSAGE =
   "We can't reach the app right now. Check your connection and try again.";
-const DASHBOARD_PATH = '/dashboard';
 const TRANSACTIONS_PATH = '/transactions';
 
 const FILE_COUNT_KEYS: Record<FileStatus, keyof FileStatusCounts> = {
@@ -74,12 +78,21 @@ const TRANSACTION_COUNT_KEYS: Record<
   Rejected: 'rejected',
 };
 
-/** The Dashboard filtered to one file status: other filters and the sort kept, page 1. */
+/**
+ * The Dashboard filtered to one file status among active files (what the count
+ * covers): the visibility back to its default, the other filters, sort and page
+ * size kept, page 1.
+ */
 function fileStatusHref(view: FileListState, status: FileStatus): string {
-  const search = toFileListSearch(
-    withFileFilters(view, { ...view.filters, status }),
+  return dashboardListHref(
+    toFileListSearch(
+      withFileFilters(view, {
+        ...view.filters,
+        status,
+        visibility: undefined,
+      }),
+    ),
   );
-  return search ? `${DASHBOARD_PATH}?${search}` : DASHBOARD_PATH;
 }
 
 /** The Transactions list filtered to one status (its default view otherwise). */
@@ -180,14 +193,14 @@ export function DashboardCounts() {
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, [subscribe, load]);
 
+  // Keeps any counts already shown: Retry after a failed refresh reloads in place.
   const retry = () => {
     setFailure(null);
-    setSummary(null);
     void load();
   };
 
   let content: ReactNode;
-  if (failure !== null) {
+  if (failure !== null && summary === null) {
     content = (
       <Alert variant="destructive">
         <AlertTitle>{COUNTS_LOAD_FAILED_TITLE}</AlertTitle>
@@ -253,7 +266,13 @@ export function DashboardCounts() {
   }
 
   return (
-    <section aria-label="Dashboard summary" className="min-w-0">
+    <section
+      aria-label="Dashboard summary"
+      className="flex min-w-0 flex-col gap-2"
+    >
+      {failure !== null && summary !== null && (
+        <RefreshFailedNotice onRetry={retry} />
+      )}
       {content}
     </section>
   );

@@ -12,11 +12,12 @@
     "unverifiedAssumptions": [
       "Show-filter chip reads \"Showing cancelled\" / \"Showing active and cancelled\" with a \"Remove Show filter\" button. Wording OK?",
       "The processing stage for invalid rows is labelled \"Waiting for corrections\" on the file details screen. Wording OK?",
-      "Download failures other than a cancelled file or an unreachable back-end show the back-end message under the title \"The file could not be downloaded\". Wording OK?"
+      "Download failures other than a cancelled file or an unreachable back-end show the back-end message under the title \"The file could not be downloaded\". Wording OK?",
+      "When a live update or reload fails after a screen has loaded, the old data stays with a small \"Couldn't refresh — showing earlier data\" note and Retry (applies to the Dashboard, Transactions list and details pages)."
     ],
     "manualTestResults": []
   },
-  "phase": "BUILD",
+  "phase": "EPIC-END",
   "stories": {
     "1": {
       "status": "complete",

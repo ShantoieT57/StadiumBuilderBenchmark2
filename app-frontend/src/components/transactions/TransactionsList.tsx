@@ -10,6 +10,8 @@
  *   Approve / Reject there).
  * - Refetches in place on the shell's `transactions-changed` and `resync` events,
  *   keeping the current view (NFR-5: no connection of its own).
+ * - A failed first load replaces the list with a problem + Retry; a failed later
+ *   load keeps the rows on screen with a small "Couldn't refresh" notice + Retry.
  * - Account numbers and descriptions are never logged (BR8): failures are shown
  *   without the error body and nothing is written to the console.
  */
@@ -26,6 +28,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
 import { TransactionStatusBadge } from '@/components/transactions/TransactionStatusBadge';
 import {
   fileNameFor,
@@ -437,11 +440,14 @@ export function TransactionsList() {
   };
 
   const result = loaded?.page ?? null;
-  const showUpdates = loaded !== null && failure === null;
-  const updating = showUpdates && loaded.queryKey !== queryKey;
+  // Once a page has loaded, a failed refresh keeps it on screen with a small
+  // notice; only a failed first load replaces the list with the problem.
+  const refreshFailed = loaded !== null && failure !== null;
+  const updating =
+    loaded !== null && failure === null && loaded.queryKey !== queryKey;
 
   let content: ReactNode;
-  if (failure !== null) {
+  if (failure !== null && result === null) {
     content = (
       <Alert variant="destructive">
         <AlertTitle>{LOAD_FAILED_TITLE}</AlertTitle>
@@ -522,11 +528,12 @@ export function TransactionsList() {
     <div className="flex min-w-0 flex-col gap-2">
       {/* Always present once loaded (a live region announces changes), and a
           fixed height so the rows below do not move when it fills. */}
-      {showUpdates && (
+      {loaded !== null && (
         <p role="status" className="text-muted-foreground min-h-5 text-sm">
           {updating ? UPDATING_MESSAGE : null}
         </p>
       )}
+      {refreshFailed && <RefreshFailedNotice onRetry={retry} />}
       <div
         aria-busy={updating ? true : undefined}
         className="flex min-w-0 flex-col gap-4"

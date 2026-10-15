@@ -10,6 +10,8 @@
  * - "This file is fully reviewed" follows `isFullyReviewed` only, never the counts (BR6).
  * - Processing history: every stage in the order returned, times to the second.
  * - Loading, problem + Retry (reloads in place) and not-found (404) states (NFR-2).
+ *   A failed refresh after the file has loaded keeps it on screen with a small
+ *   "Couldn't refresh" notice + Retry (a 404 still shows "File not found").
  * - "Back to dashboard" returns to the remembered Dashboard view (BR2).
  * - Failed: "Why it failed" with the reason verbatim, no retry (R13, BR9).
  * - Transactions not available yet: counts as plain text plus a note (R14, BR8).
@@ -32,6 +34,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
 import {
   FileCancelledBadge,
   FileStatusBadge,
@@ -399,8 +402,13 @@ function FileDetailsContent({ file }: { file: FileDetails }) {
 }
 
 export function FileDetailsView({ fileId }: { fileId: string }) {
-  const [file, setFile] = useState<FileDetails | null>(null);
+  // The last details received; only shown while they are for this file.
+  const [loaded, setLoaded] = useState<{
+    fileId: string;
+    file: FileDetails;
+  } | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
+  const file = loaded !== null && loaded.fileId === fileId ? loaded.file : null;
   const requestRef = useRef(0);
 
   // State is only set from the promise callbacks, never synchronously in an effect.
@@ -409,7 +417,7 @@ export function FileDetailsView({ fileId }: { fileId: string }) {
     return getFile(fileId).then(
       (result) => {
         if (request !== requestRef.current) return;
-        setFile(result);
+        setLoaded({ fileId, file: result });
         setFailure(null);
       },
       (error: unknown) => {
@@ -448,9 +456,9 @@ export function FileDetailsView({ fileId }: { fileId: string }) {
     [],
   );
 
+  // Keeps the file already shown: Retry after a failed refresh reloads in place.
   const retry = () => {
     setFailure(null);
-    setFile(null);
     void load();
   };
 
@@ -464,7 +472,7 @@ export function FileDetailsView({ fileId }: { fileId: string }) {
         </p>
       </>
     );
-  } else if (failure !== null) {
+  } else if (failure !== null && file === null) {
     content = (
       <>
         <h1 className="text-2xl font-semibold">File details</h1>
@@ -499,7 +507,12 @@ export function FileDetailsView({ fileId }: { fileId: string }) {
       </>
     );
   } else {
-    content = <FileDetailsContent file={file} />;
+    content = (
+      <>
+        {failure !== null && <RefreshFailedNotice onRetry={retry} />}
+        <FileDetailsContent file={file} />
+      </>
+    );
   }
 
   return (
