@@ -6,6 +6,8 @@
  * - Every TransactionDetails field as a description list (`<dt>` label, `<dd>` value).
  * - The rejection reason is read-only text, shown only for a Rejected transaction.
  * - Loading, problem + Retry (reloads in place) and not-found (404) states (NFR-2).
+ *   A failed reload after the transaction has loaded keeps it on screen with a
+ *   small "Couldn't refresh" notice + Retry (a 404 still shows not found).
  * - No Approve / Reject / Export controls in this epic (BR6).
  * - Account numbers and descriptions are never logged (BR8).
  */
@@ -21,6 +23,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
 import { TransactionStatusBadge } from '@/components/transactions/TransactionStatusBadge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -123,8 +126,16 @@ export function TransactionDetailsView({
 }: {
   transactionId: string;
 }) {
-  const [details, setDetails] = useState<TransactionDetails | null>(null);
+  // The last details received; only shown while they are for this transaction.
+  const [loaded, setLoaded] = useState<{
+    transactionId: string;
+    details: TransactionDetails;
+  } | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
+  const details =
+    loaded !== null && loaded.transactionId === transactionId
+      ? loaded.details
+      : null;
   const requestRef = useRef(0);
 
   // State is only set from the promise callbacks, never synchronously in an effect.
@@ -133,7 +144,7 @@ export function TransactionDetailsView({
     return getTransaction(transactionId).then(
       (result) => {
         if (request !== requestRef.current) return;
-        setDetails(result);
+        setLoaded({ transactionId, details: result });
         setFailure(null);
       },
       (error: unknown) => {
@@ -156,9 +167,9 @@ export function TransactionDetailsView({
     [],
   );
 
+  // Keeps the details already shown: Retry after a failed reload reloads in place.
   const retry = () => {
     setFailure(null);
-    setDetails(null);
     void load();
   };
 
@@ -171,7 +182,7 @@ export function TransactionDetailsView({
         This transaction does not exist or is no longer available.
       </p>
     );
-  } else if (failure !== null) {
+  } else if (failure !== null && details === null) {
     content = (
       <Alert variant="destructive">
         <AlertTitle>{LOAD_FAILED_TITLE}</AlertTitle>
@@ -201,7 +212,12 @@ export function TransactionDetailsView({
     );
   } else {
     heading = `Transaction ${details.reference}`;
-    content = <DetailsList details={details} />;
+    content = (
+      <>
+        {failure !== null && <RefreshFailedNotice onRetry={retry} />}
+        <DetailsList details={details} />
+      </>
+    );
   }
 
   return (

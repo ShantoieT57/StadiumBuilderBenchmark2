@@ -444,4 +444,45 @@ describe('Epic transactions-list, Story 1: Transactions list', () => {
     expect(screen.queryByText('Updating…')).not.toBeInTheDocument();
     expect(sorted.closest('[aria-busy="true"]')).toBeNull();
   });
+
+  // AC-4, AC-6
+  it('keeps the loaded rows with a small problem and Retry when a live refresh fails', async () => {
+    const user = userEvent.setup();
+    const [first] = servePage(undefined).items;
+
+    renderList();
+    const table = await screen.findByRole('table');
+    await waitFor(() =>
+      expect(rowFor(table, first.reference)).toBeInTheDocument(),
+    );
+    const [connection] = FakeEventSource.connections;
+
+    // The refresh after a live update fails: the rows stay, with a small problem.
+    mockGet.mockRejectedValueOnce({
+      message: 'Something went wrong',
+      statusCode: 500,
+    });
+    act(() =>
+      connection.emit('transactions-changed', { fileId: first.file.id }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Couldn't refresh — showing earlier data",
+    );
+    expect(rowFor(table, first.reference)).toBeInTheDocument();
+    expect(
+      screen.queryByText('Transactions could not be loaded'),
+    ).not.toBeInTheDocument();
+
+    // Retry loads again in place, showing the back-end's latest rows.
+    dataset = dataset.map((item) =>
+      item.id === first.id ? { ...item, status: 'Approved' } : item,
+    );
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() =>
+      expect(
+        within(rowFor(table, first.reference)).getByText('Approved'),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });

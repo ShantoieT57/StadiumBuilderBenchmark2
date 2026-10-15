@@ -32,7 +32,29 @@
  *                             Invalid values -> 400 ValidationProblem naming the parameter.
  *                             200 body: TransactionPage.
  *   - GET transactions/{id}   200 TransactionDetails, or 404 `{ message: 'Transaction not found' }`.
- *   - GET files               the seeded files (src/mocks/data/files.ts `seedFiles()`) as a FilePage.
+ *   - GET files               real query semantics over the seeded files
+ *                             (src/mocks/data/files.ts `seedDashboardFileDetails()`, 12 files, a
+ *                             superset of the 2 april-batch files the transactions belong to):
+ *                             page (>= 1, default 1; past the last page is empty),
+ *                             pageSize (5 | 10 | 20 | 50, default 20),
+ *                             sortBy FileName | LastProcessedAt | RowCount | Status | ImportedCount
+ *                             (default LastProcessedAt), sortDirection (default Desc for
+ *                             LastProcessedAt, Asc otherwise). FileName ignores case; Status sorts
+ *                             Uploaded < Processing < Completed < Failed; nulls sort last ascending
+ *                             and first descending (so never-processed files come first by
+ *                             default); ties by received order (uploadedAt) in the same direction.
+ *                             status, fileName (literal, case-insensitive contains),
+ *                             processedFrom / processedTo (ISO date-times, inclusive; unprocessed
+ *                             files never match; from later than to -> 400 on processedTo),
+ *                             visibility Active (default) | Cancelled | Both.
+ *                             Invalid values -> 400 ValidationProblem naming the parameter.
+ *                             200 body: FilePage.
+ *   - GET files/{id}          200 FileDetails, or 404 `{ message: 'File not found' }`.
+ *   - GET files/{id}/content  200 `text/csv` (`fileContentFor(file)`) with
+ *                             `Content-Disposition: attachment; filename=...; filename*=UTF-8''...`;
+ *                             410 `{ message }` for a cancelled file; 404 for an unknown file.
+ *   - GET dashboard/summary   counts over the dataset's non-cancelled files
+ *                             (src/mocks/data/dashboardSummary.ts `summarizeFiles()`).
  *
  * Dataset override (per test, parallel-safe): set a `mock-dataset` cookie on the
  * browser context, e.g.
@@ -40,7 +62,11 @@
  * The /api proxy forwards the whole Cookie header, so browser-side calls carry it.
  *   - absent | `seeded`   the 30 seeded transactions across 2 files (default)
  *   - `empty`             no transactions and no files; GET transactions answers
- *                         hasAnyTransactions: false ("No transactions yet")
+ *                         hasAnyTransactions: false ("No transactions yet"); GET dashboard/summary
+ *                         is all zeros; GET files/{id} is 404 for every id
+ *   - `many`              the seeded transactions, and the 12 seeded files plus 41 older
+ *                         Completed `bulk-import-NN.csv` files with no transactions
+ *                         (50 active files: 3 pages at the default page size of 20)
  * Next.js SERVER-side fetches that forward only `txn_session` (e.g. GET auth/me) never
  * carry it, so the override applies to calls made through the browser's /api proxy.
  *
@@ -51,7 +77,10 @@
 import http from 'node:http';
 
 import type {
-  FileListItem,
+  FileDetails,
+  FileSortColumn,
+  FileStatus,
+  FileVisibility,
   SortDirection,
   TransactionDetails,
   TransactionSortColumn,
@@ -60,7 +89,17 @@ import type {
   UserRole,
   ValidationProblem,
 } from '../../src/types/api-generated';
-import { filePageOf, seedFiles } from '../../src/mocks/data/files';
+import { summarizeFiles } from '../../src/mocks/data/dashboardSummary';
+import {
+  FILE_CONTENT_DISCARDED_MESSAGE,
+  FILE_NOT_FOUND_MESSAGE,
+  contentDispositionFor,
+  fileContentFor,
+  filePageOf,
+  seedDashboardFileDetails,
+  seedManyFileDetails,
+  toFileListItem,
+} from '../../src/mocks/data/files';
 import {
   unauthenticatedBody,
   userInfoFor,
@@ -83,7 +122,7 @@ export const SESSION_COOKIE = 'txn_session';
 export const MOCK_DATASET_COOKIE = 'mock-dataset';
 
 /** The datasets the mock can serve. */
-export type MockDataset = 'seeded' | 'empty';
+export type MockDataset = 'seeded' | 'empty' | 'many';
 
 const ROLES: readonly UserRole[] = ['Importer', 'Approver'];
 const REASONS: readonly UnauthenticatedReason[] = [
@@ -153,9 +192,8 @@ export function endedReasonFromCookie(
 export function datasetFromCookie(
   cookieHeader: string | null | undefined,
 ): MockDataset {
-  return cookieValue(cookieHeader, MOCK_DATASET_COOKIE) === 'empty'
-    ? 'empty'
-    : 'seeded';
+  const value = cookieValue(cookieHeader, MOCK_DATASET_COOKIE);
+  return value === 'empty' || value === 'many' ? value : 'seeded';
 }
 
 /** `Set-Cookie` that clears the session, as the back-end does on sign-out. */
@@ -183,8 +221,11 @@ function transactionsFor(dataset: MockDataset): TransactionDetails[] {
   return dataset === 'empty' ? [] : seedTransactionDetails();
 }
 
-function filesFor(dataset: MockDataset): FileListItem[] {
-  return dataset === 'empty' ? [] : seedFiles();
+function filesFor(dataset: MockDataset): FileDetails[] {
+  if (dataset === 'empty') return [];
+  return dataset === 'many'
+    ? seedManyFileDetails()
+    : seedDashboardFileDetails();
 }
 
 // ---------------------------------------------------------------------------
@@ -408,14 +449,197 @@ function transactionDetails(id: string, dataset: MockDataset): MockResponse {
     : json(404, { message: 'Transaction not found' });
 }
 
-/** GET /files over `dataset` (paging honoured, filters and sort not modelled). */
+// ---------------------------------------------------------------------------
+// GET /files query semantics
+// ---------------------------------------------------------------------------
+
+const FILE_SORT_COLUMNS: readonly FileSortColumn[] = [
+  'FileName',
+  'LastProcessedAt',
+  'RowCount',
+  'Status',
+  'ImportedCount',
+];
+const FILE_STATUSES: readonly FileStatus[] = [
+  'Uploaded',
+  'Processing',
+  'Completed',
+  'Failed',
+];
+const FILE_VISIBILITIES: readonly FileVisibility[] = [
+  'Active',
+  'Cancelled',
+  'Both',
+];
+/** An ISO 8601 date or date-time, optionally with `Z` or an offset. */
+const ISO_DATE_TIME =
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?(Z|[+-]\d{2}:\d{2})?$/;
+
+/** Epoch ms of an ISO date-time query value, or null if it cannot be read. */
+function instantOf(value: string): number | null {
+  if (!ISO_DATE_TIME.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** Sort key of a file for `column`; null = not known yet (sorts as the largest value). */
+function fileSortKey(
+  f: FileDetails,
+  column: FileSortColumn,
+): string | number | null {
+  switch (column) {
+    case 'FileName':
+      return f.fileName.toLowerCase();
+    case 'LastProcessedAt':
+      return f.lastProcessedAt === null ? null : Date.parse(f.lastProcessedAt);
+    case 'RowCount':
+      return f.rowCount;
+    case 'Status':
+      return FILE_STATUSES.indexOf(f.status);
+    case 'ImportedCount':
+      return f.transactions.imported;
+  }
+}
+
+/** Ascending comparison with nulls after every value. */
+function compareNullable(
+  a: string | number | null,
+  b: string | number | null,
+): number {
+  if (a === null || b === null) {
+    if (a === b) return 0;
+    return a === null ? 1 : -1;
+  }
+  return compareKeys(a, b);
+}
+
+/** GET /files over `dataset` with query `params`. */
 function listFiles(
   params: URLSearchParams,
   dataset: MockDataset,
 ): MockResponse {
-  const page = Number(params.get('page') ?? 1) || 1;
-  const pageSize = Number(params.get('pageSize') ?? 20) || 20;
-  return json(200, filePageOf(filesFor(dataset), { page, pageSize }));
+  const errors: Record<string, string[]> = {};
+  const fail = (name: string, message: string): void => {
+    errors[name] = [message];
+  };
+  const get = (name: string): string | null => {
+    const value = params.get(name);
+    return value === null || value === '' ? null : value;
+  };
+  const notValid = (name: string, value: string): void =>
+    fail(name, `The value '${value}' is not valid for ${name}.`);
+
+  const pageRaw = get('page');
+  const page = pageRaw === null ? 1 : Number(pageRaw);
+  if (!Number.isInteger(page) || page < 1)
+    fail('page', 'The page must be 1 or more.');
+
+  const pageSizeRaw = get('pageSize');
+  const pageSize = pageSizeRaw === null ? 20 : Number(pageSizeRaw);
+  if (!PAGE_SIZES.includes(pageSize)) {
+    fail('pageSize', 'The page size must be 5, 10, 20 or 50.');
+  }
+
+  const sortByRaw = get('sortBy') ?? 'LastProcessedAt';
+  const sortBy = FILE_SORT_COLUMNS.find((c) => c === sortByRaw);
+  if (!sortBy) notValid('sortBy', sortByRaw);
+
+  const directionRaw = get('sortDirection');
+  const direction: SortDirection | undefined =
+    directionRaw === null
+      ? sortBy === 'LastProcessedAt' || !sortBy
+        ? 'Desc'
+        : 'Asc'
+      : SORT_DIRECTIONS.find((d) => d === directionRaw);
+  if (!direction && directionRaw !== null)
+    notValid('sortDirection', directionRaw);
+
+  const statusRaw = get('status');
+  const status =
+    statusRaw === null ? null : FILE_STATUSES.find((s) => s === statusRaw);
+  if (status === undefined && statusRaw !== null) notValid('status', statusRaw);
+
+  const visibilityRaw = get('visibility');
+  const visibility: FileVisibility | undefined =
+    visibilityRaw === null
+      ? 'Active'
+      : FILE_VISIBILITIES.find((v) => v === visibilityRaw);
+  if (!visibility && visibilityRaw !== null)
+    notValid('visibility', visibilityRaw);
+
+  const fromRaw = get('processedFrom');
+  const from = fromRaw === null ? null : instantOf(fromRaw);
+  if (fromRaw !== null && from === null) notValid('processedFrom', fromRaw);
+  const toRaw = get('processedTo');
+  const to = toRaw === null ? null : instantOf(toRaw);
+  if (toRaw !== null && to === null) notValid('processedTo', toRaw);
+  if (from !== null && to !== null && from > to) {
+    fail(
+      'processedTo',
+      'The end of the process-date range must not be before its start.',
+    );
+  }
+
+  if (Object.keys(errors).length > 0 || !sortBy || !direction || !visibility) {
+    return validationProblem(errors);
+  }
+
+  // Matched literally, ignoring case (the back-end does not trim it either).
+  const nameFilter = (params.get('fileName') ?? '').toLowerCase();
+
+  const matching = filesFor(dataset).filter((f) => {
+    const processed =
+      f.lastProcessedAt === null ? null : Date.parse(f.lastProcessedAt);
+    return (
+      (!status || f.status === status) &&
+      (nameFilter === '' || f.fileName.toLowerCase().includes(nameFilter)) &&
+      (from === null || (processed !== null && processed >= from)) &&
+      (to === null || (processed !== null && processed <= to)) &&
+      (visibility === 'Both' ||
+        (visibility === 'Cancelled' ? f.isCancelled : !f.isCancelled))
+    );
+  });
+
+  const sign = direction === 'Desc' ? -1 : 1;
+  const sorted = [...matching].sort(
+    (a, b) =>
+      sign *
+      (compareNullable(fileSortKey(a, sortBy), fileSortKey(b, sortBy)) ||
+        compareKeys(Date.parse(a.uploadedAt), Date.parse(b.uploadedAt)) ||
+        compareKeys(a.id, b.id)),
+  );
+
+  return json(200, filePageOf(sorted.map(toFileListItem), { page, pageSize }));
+}
+
+/** The file with `id` in `dataset`, or undefined. */
+function findFile(id: string, dataset: MockDataset): FileDetails | undefined {
+  return filesFor(dataset).find((f) => f.id.toLowerCase() === id.toLowerCase());
+}
+
+/** GET /files/{id} over `dataset`. */
+function fileDetails(id: string, dataset: MockDataset): MockResponse {
+  const found = findFile(id, dataset);
+  return found
+    ? json(200, found)
+    : json(404, { message: FILE_NOT_FOUND_MESSAGE });
+}
+
+/** GET /files/{id}/content over `dataset`: the original CSV, 410 once cancelled. */
+function fileContent(id: string, dataset: MockDataset): MockResponse {
+  const found = findFile(id, dataset);
+  if (!found) return json(404, { message: FILE_NOT_FOUND_MESSAGE });
+  if (!found.canDownload) {
+    return json(410, { message: FILE_CONTENT_DISCARDED_MESSAGE });
+  }
+  return {
+    status: 200,
+    headers: {
+      'content-type': 'text/csv',
+      'content-disposition': contentDispositionFor(found.fileName),
+    },
+    body: fileContentFor(found),
+  };
 }
 
 /** 401 for a request without an ACTIVE session (ended reason, else NotSignedIn). */
@@ -429,6 +653,7 @@ function unauthenticated(
 }
 
 const TRANSACTION_ID_PATH = /^\/transactions\/([^/]+)$/;
+const FILE_ID_PATH = /^\/files\/([^/]+)(\/content)?$/;
 
 /**
  * The mock back-end's answer for `method path` (path relative to the `/api` base,
@@ -461,11 +686,27 @@ export function respondFor(
     const idMatch = TRANSACTION_ID_PATH.exec(path);
     const isTransactionDetails =
       idMatch !== null && UUID_PATTERN.test(idMatch[1]);
-    if (path === '/transactions' || path === '/files' || isTransactionDetails) {
+    const fileMatch = FILE_ID_PATH.exec(path);
+    const isFilePath = fileMatch !== null && UUID_PATTERN.test(fileMatch[1]);
+    if (
+      path === '/transactions' ||
+      path === '/files' ||
+      path === '/dashboard/summary' ||
+      isTransactionDetails ||
+      isFilePath
+    ) {
       if (!roleFromCookie(cookieHeader)) return unauthenticated(cookieHeader);
       const dataset = datasetFromCookie(cookieHeader);
       if (path === '/transactions') return listTransactions(params, dataset);
       if (path === '/files') return listFiles(params, dataset);
+      if (path === '/dashboard/summary') {
+        return json(200, summarizeFiles(filesFor(dataset)));
+      }
+      if (fileMatch) {
+        return fileMatch[2]
+          ? fileContent(fileMatch[1], dataset)
+          : fileDetails(fileMatch[1], dataset);
+      }
       if (idMatch) return transactionDetails(idMatch[1], dataset);
     }
   }

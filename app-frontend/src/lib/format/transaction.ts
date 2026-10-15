@@ -30,6 +30,16 @@ export function formatLocalDateTime(value: string): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
+/**
+ * Like `formatLocalDateTime`, to the second: `2026-05-03T10:30:15+02:00` ->
+ * `2026-05-03 10:30:15` in Johannesburg (processing stages often share a minute).
+ */
+export function formatLocalDateTimeWithSeconds(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${formatLocalDateTime(value)}:${pad2(date.getSeconds())}`;
+}
+
 const AMOUNT_FORMAT = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
