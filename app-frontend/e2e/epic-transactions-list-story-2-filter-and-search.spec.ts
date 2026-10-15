@@ -117,6 +117,49 @@ function activeFilters(page: Page): Locator {
   return page.getByRole('list', { name: 'Active filters' });
 }
 
+type DateOrder = 'MDY' | 'DMY' | 'YMD';
+
+/**
+ * Types `iso` (yyyy-MM-dd) into the focused native date input, segment by
+ * segment in `order`. The year segment takes up to six digits, so ArrowRight
+ * moves on from it when it is not last.
+ */
+async function typeDate(
+  page: Page,
+  iso: string,
+  order: DateOrder,
+): Promise<void> {
+  const [year, month, day] = iso.split('-');
+  const segments = { Y: year, M: month, D: day };
+  for (const [index, part] of [...order].entries()) {
+    await page.keyboard.type(segments[part as keyof typeof segments]);
+    if (part === 'Y' && index < order.length - 1) {
+      await page.keyboard.press('ArrowRight');
+    }
+  }
+}
+
+/**
+ * The segment order of a native date input. Chromium takes it from the OS
+ * regional format (mm/dd/yyyy, dd/mm/yyyy or yyyy/mm/dd), so find it on a
+ * scratch page.
+ */
+async function dateInputOrder(context: BrowserContext): Promise<DateOrder> {
+  const scratch = await context.newPage();
+  try {
+    for (const order of ['MDY', 'DMY', 'YMD'] as const) {
+      await scratch.setContent('<input aria-label="Probe" type="date">');
+      const probe = scratch.getByLabel('Probe');
+      await probe.focus();
+      await typeDate(scratch, '2026-04-15', order);
+      if ((await probe.inputValue()) === '2026-04-15') return order;
+    }
+  } finally {
+    await scratch.close();
+  }
+  throw new Error('Could not work out the date input segment order.');
+}
+
 /** Press Tab until `target` holds keyboard focus. Returns whether it was reached. */
 async function tabTo(
   page: Page,
@@ -338,6 +381,7 @@ test.describe('Epic transactions-list, Story 2: Filter and search transactions',
     baseURL,
   }) => {
     await page.setViewportSize({ width: 360, height: 800 });
+    const dateOrder = await dateInputOrder(context);
     await signInAs(
       page,
       context,
@@ -412,11 +456,11 @@ test.describe('Epic transactions-list, Story 2: Filter and search transactions',
     await page.keyboard.press('Enter');
     await expect.poll(() => urlParam(page, 'fileId')).toBe(BATCH_2);
 
-    // Date range by keyboard (mm/dd/yyyy segments).
+    // Date range by keyboard (segment order follows the OS date format).
     expect(await tabTo(page, fromDate)).toBe(true);
-    await page.keyboard.type('04012026');
+    await typeDate(page, '2026-04-01', dateOrder);
     expect(await tabTo(page, toDate)).toBe(true);
-    await page.keyboard.type('04152026');
+    await typeDate(page, '2026-04-15', dateOrder);
 
     // Amount range by keyboard.
     expect(await tabTo(page, minAmount)).toBe(true);

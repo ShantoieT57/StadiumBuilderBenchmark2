@@ -14,7 +14,8 @@
       "The File filter offers only the 50 most recently processed files (older files opened from a link show as \"Selected file\"). Enough?",
       "On tablets (768–1023px) the filters sit above the list; from 1024px they sit beside it. Acceptable?",
       "\"Back to transactions\" (not the browser Back button) restores the same filters, sort, page and page size — it relies on the browser tab remembering them; a new tab opened straight onto a transaction links to the default list.",
-      "While the list updates after a sort, page or filter change, a small \"Updating…\" note appears just above it (a blank line is kept there otherwise). Placement acceptable?"
+      "While the list updates after a sort, page or filter change, a small \"Updating…\" note appears just above it (a blank line is kept there otherwise). Placement acceptable?",
+      "On a phone the Filters panel slides up from the bottom (full width) rather than in from the right. OK?"
     ],
     "manualTestResults": []
   },

@@ -16,3 +16,10 @@
 
 - **Details address.** Opening a transaction goes to a plain /transactions/<id> address. The list's filters, sort and page are not put in that address; the app remembers them for the browser tab instead, which keeps the details address clean. "Back to transactions" and the browser Back button both return to the list exactly as it was left.
 - **Times on the details screen.** "Created on" and "Last changed on" are shown in local time. The transaction date itself is still shown exactly as the bank file had it.
+
+## Epic-end fixes
+
+- **Sorted lists.** A sorted list now always keeps both the sort column and its direction in the address, so applying a filter never drops a chosen direction.
+- **Phone Filters panel.** It slides up from the bottom, full width, instead of in from the right.
+- **Keyboard picks in dropdowns.** Typing the first letters of an option and pressing Enter now always chooses the typed option, in every dropdown in the app.
+- **Edited generated test.** The story-2 phone e2e test now detects the browser's date-entry order (Chromium on Windows follows the OS regional format) instead of assuming mm/dd/yyyy. Its assertions are unchanged.

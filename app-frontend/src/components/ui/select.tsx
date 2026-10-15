@@ -49,17 +49,84 @@ function SelectTrigger({
   );
 }
 
+/** How long a pause in typing starts a new type-ahead search (matches Radix). */
+const TYPEAHEAD_RESET_MS = 1000;
+
+/**
+ * Type-ahead for the open list that moves focus in the same keydown.
+ *
+ * Radix moves focus to the matching option in a deferred timer, so Enter pressed
+ * straight after typing (a fast typist, or assistive tech replaying keys) can land
+ * on the previously focused option and choose the wrong value. This runs in the
+ * capture phase, focuses the match synchronously and marks the event handled so
+ * Radix's own deferred type-ahead is skipped. Matching follows Radix: options whose
+ * text starts with the typed string, searching on from the focused option, and a
+ * repeated single character cycles through the options starting with it.
+ */
+function useSyncTypeahead() {
+  const search = React.useRef('');
+  const timer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  React.useEffect(() => () => clearTimeout(timer.current), []);
+
+  return React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const { key } = event;
+    if (key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) {
+      return;
+    }
+    // A space with no search under way chooses the focused option.
+    if (key === ' ' && search.current === '') return;
+
+    search.current += key;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      search.current = '';
+    }, TYPEAHEAD_RESET_MS);
+
+    const options = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        '[role="option"]:not([data-disabled])',
+      ),
+    );
+    const typed = search.current.toLowerCase();
+    const repeated =
+      typed.length > 1 && [...typed].every((c) => c === typed[0]);
+    const term = repeated ? typed[0] : typed;
+    const active = document.activeElement;
+    const start = Math.max(
+      options.findIndex((option) => option === active),
+      0,
+    );
+    let ordered = [...options.slice(start), ...options.slice(0, start)];
+    if (term.length === 1) ordered = ordered.filter((o) => o !== active);
+    const match = ordered.find((option) =>
+      (option.textContent ?? '').trim().toLowerCase().startsWith(term),
+    );
+
+    event.preventDefault();
+    if (key === ' ') event.stopPropagation();
+    match?.focus();
+  }, []);
+}
+
 function SelectContent({
   className,
   children,
   position = 'item-aligned',
   align = 'center',
+  onKeyDownCapture,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  const typeahead = useSyncTypeahead();
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         data-slot="select-content"
+        onKeyDownCapture={(event) => {
+          onKeyDownCapture?.(event);
+          if (!event.defaultPrevented) typeahead(event);
+        }}
         className={cn(
           'relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
           position === 'popper' &&

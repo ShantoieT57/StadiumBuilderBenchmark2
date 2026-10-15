@@ -3,7 +3,8 @@
  *
  * Param names and values are the API's own (`sortBy=Amount&sortDirection=Desc`),
  * so a list URL maps one-to-one onto `GET /transactions`. Defaults
- * (TransactionDate, newest first, page 1, 20 per page) are left out of the URL.
+ * (TransactionDate newest first, page 1, 20 per page) are left out of the URL;
+ * any other sort writes both `sortBy` and `sortDirection`.
  */
 import type {
   ListTransactionsQuery,
@@ -169,8 +170,13 @@ export function toListSearch(state: TransactionListState): string {
   for (const [key, value] of Object.entries(state.filters)) {
     if (value !== undefined && value !== '') params.set(key, String(value));
   }
-  if (state.sortBy !== DEFAULT_SORT_COLUMN) params.set('sortBy', state.sortBy);
-  if (state.sortDirection !== defaultDirectionFor(state.sortBy)) {
+  // Only the true default (TransactionDate, newest first) stays out of the URL;
+  // any other sort carries both params so a shared link is unambiguous.
+  if (
+    state.sortBy !== DEFAULT_SORT_COLUMN ||
+    state.sortDirection !== defaultDirectionFor(DEFAULT_SORT_COLUMN)
+  ) {
+    params.set('sortBy', state.sortBy);
     params.set('sortDirection', state.sortDirection);
   }
   if (state.page !== 1) params.set('page', String(state.page));

@@ -11,7 +11,7 @@
  * - Range checks run on leaving a field and on submit. While a range is invalid
  *   it is never applied.
  * - md and up: the form sits inline. Below md: a "Filters" button opens the
- *   same form in a Sheet. Active filters show as removable chips in both.
+ *   same form in a bottom Sheet. Active filters show as removable chips in both.
  */
 
 import { SlidersHorizontalIcon, XIcon } from 'lucide-react';
@@ -473,9 +473,11 @@ export function TransactionFilters() {
               {FILTERS_TITLE}
             </Button>
           </SheetTrigger>
+          {/* A bottom sheet: it slides up, so it never sits (even mid-animation)
+              past the side of a phone screen, and spans the full width. */}
           <SheetContent
-            side="right"
-            className="w-full overflow-y-auto sm:max-w-sm"
+            side="bottom"
+            className="max-h-[85dvh] w-full max-w-full min-w-0 overflow-x-hidden overflow-y-auto"
           >
             <SheetHeader>
               <SheetTitle>{FILTERS_TITLE}</SheetTitle>

@@ -249,6 +249,68 @@ describe('Epic transactions-list, Story 2: range validation', () => {
   });
 });
 
+describe('Epic transactions-list, Story 2: applying filters keeps the sort', () => {
+  // AC-1 (BR3): new filters return to page 1 and keep the chosen sort.
+  const sorts: { sortBy: string; sortDirection: string }[] = [
+    { sortBy: 'Amount', sortDirection: 'Asc' },
+    { sortBy: 'Amount', sortDirection: 'Desc' },
+    { sortBy: 'TransactionDate', sortDirection: 'Asc' },
+  ];
+  it.each(sorts)(
+    'keeps sortBy=$sortBy and sortDirection=$sortDirection in the URL',
+    async ({ sortBy, sortDirection }) => {
+      const user = userEvent.setup();
+      navigation.search = new URLSearchParams({
+        sortBy,
+        sortDirection,
+        page: '2',
+      });
+      serveApi(pageOf(seedTransactions()));
+
+      render(
+        <ToastProvider>
+          <TransactionFilters />
+        </ToastProvider>,
+      );
+
+      await user.type(
+        await screen.findByLabelText(/^min(imum)? amount/i),
+        '50',
+      );
+      await user.click(screen.getByRole('button', { name: /apply/i }));
+
+      await waitFor(() => {
+        expect(navigatedUrls()).toHaveLength(1);
+      });
+      const applied = new URL(navigatedUrls()[0], 'http://localhost')
+        .searchParams;
+      expect(applied.get('minAmount')).toBe('50');
+      expect(applied.get('sortBy')).toBe(sortBy);
+      expect(applied.get('sortDirection')).toBe(sortDirection);
+      expect(applied.get('page')).toBeNull();
+    },
+  );
+
+  it('leaves the default sort (newest first) out of the URL', async () => {
+    const user = userEvent.setup();
+    serveApi(pageOf(seedTransactions()));
+
+    render(
+      <ToastProvider>
+        <TransactionFilters />
+      </ToastProvider>,
+    );
+
+    await user.type(await screen.findByLabelText(/^min(imum)? amount/i), '50');
+    await user.click(screen.getByRole('button', { name: /apply/i }));
+
+    await waitFor(() => {
+      expect(navigatedUrls()).toHaveLength(1);
+    });
+    expect(navigatedUrls()[0]).toBe('/transactions?minAmount=50');
+  });
+});
+
 describe('Epic transactions-list, Story 2: filters from a link', () => {
   /** The query of every GET /transactions the list sent. */
   function transactionQueries(): Record<string, unknown>[] {
