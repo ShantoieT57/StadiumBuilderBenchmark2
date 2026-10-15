@@ -19,3 +19,11 @@
 - **Where to cancel.** Importers can cancel a file from its details page or from the correction screen.
 - **Confirmation.** It names the file and has "Keep file" as the default.
 - **After cancelling.** The details show who cancelled the file and when, straight away.
+
+## Manual test — 2026-10-15
+
+- **Who ran it.** Claude, against the real back-end. The user delegated this approval.
+- **Result.** 23/23 passed. This includes:
+  - correcting a real file in two steps until it loaded
+  - a refused cancel (the file had approved transactions)
+  - an allowed cancel

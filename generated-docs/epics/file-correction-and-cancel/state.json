@@ -15,28 +15,36 @@
       "Not-waiting notice says e.g. \"Its current status is Completed.\" (\"Failed, cancelled\" for a cancelled file). Wording OK?",
       "A refused cancel shows a problem headed \"The file could not be cancelled\" with the server explanation underneath. Wording OK?"
     ],
-    "manualTestResults": []
+    "manualTestResults": [
+      {
+        "by": "Claude (delegated by user; automated browser walkthrough against the real back-end)",
+        "date": "2026-10-15T13:55:33.410Z",
+        "passed": 23,
+        "failed": 0,
+        "notes": "Real failed files: partial then full correction (loaded 3 rows with corrected values), save without recheck, not-waiting notice, cancel refused (409, 2 approved) and allowed (content discarded, hidden from dashboard), Importer shortcuts, Approver no-access and no cancel."
+      }
+    ]
   },
-  "phase": "EPIC-END",
+  "phase": "COMPLETE-ON-BRANCH",
   "stories": {
     "1": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed-after-fix",
       "startedAt": "2026-10-15T13:13:14.956Z",
       "completedAt": "2026-10-15T13:22:16.955Z"
     },
     "2": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed",
       "startedAt": "2026-10-15T13:22:16.956Z",
       "completedAt": "2026-10-15T13:28:22.299Z"
     },
     "3": {
       "status": "complete",
       "commit": null,
-      "e2eStatus": "deferred",
+      "e2eStatus": "passed-after-fix",
       "startedAt": "2026-10-15T13:28:22.300Z",
       "completedAt": "2026-10-15T13:32:53.411Z"
     }
