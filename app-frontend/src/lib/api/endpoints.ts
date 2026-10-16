@@ -13,7 +13,6 @@
  * NOT generated here (transport left to the epics that build them):
  * - POST /files (UploadFile): multipart/form-data with upload progress; built in
  *   ./upload.ts (XMLHttpRequest) and re-exported below as `uploadFile`.
- * - GET /transactions/export (ExportTransactions): CSV attachment download; see `ExportTransactionsQuery`.
  * - GET /events (StreamEvents): text/event-stream; see `SseEventName` and `SseEventData`.
  *
  * Error bodies: the client throws an `APIError` carrying `statusCode`, `message`,
@@ -23,9 +22,12 @@
  */
 
 import { apiClient, get, post } from '@/lib/api/client';
+import { fileNameFromContentDisposition } from '@/lib/api/contentDisposition';
+import type { WithResponseHeaders } from '@/types/api';
 import type {
   CurrentUser,
   DashboardSummary,
+  ExportTransactionsQuery,
   FileDetails,
   FilePage,
   ImportedTransactionCount,
@@ -145,3 +147,39 @@ export const rejectTransaction = (
     `/transactions/${encodeURIComponent(transactionId)}/reject`,
     data,
   );
+
+/** The name an export is saved under when the server sent no readable one. */
+export const FALLBACK_EXPORT_FILE_NAME = 'transactions.csv';
+
+/** A downloaded export: the CSV exactly as sent, and the server's file name. */
+export interface TransactionExport {
+  blob: Blob;
+  fileName: string;
+}
+
+/**
+ * GET /transactions/export - approvers only. The CSV of every transaction
+ * matching the filters (all pages, in the given sort), as a Blob passed through
+ * unchanged, named from `Content-Disposition` (`filename*` first, then
+ * `filename`; `transactions.csv` only when neither is readable). 409 when
+ * nothing matches. The contents are never read or logged.
+ */
+export const exportTransactions = async (
+  query: ExportTransactionsQuery,
+): Promise<TransactionExport> => {
+  const { data, headers } = await apiClient<WithResponseHeaders<Blob>>(
+    '/transactions/export',
+    {
+      method: 'GET',
+      params: query,
+      isBinaryResponse: true,
+      withResponseHeaders: true,
+    },
+  );
+  return {
+    blob: data,
+    fileName:
+      fileNameFromContentDisposition(headers.get('content-disposition')) ??
+      FALLBACK_EXPORT_FILE_NAME,
+  };
+};

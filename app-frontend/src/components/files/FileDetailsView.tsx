@@ -61,6 +61,7 @@ import {
   isRedirectingToSignIn,
   statusOf,
 } from '@/lib/api/errors';
+import { saveBlob } from '@/lib/download/saveBlob';
 import {
   dashboardListHref,
   rememberedFileListSearch,
@@ -106,8 +107,6 @@ export const DOWNLOAD_STARTED_MESSAGE = 'Download started';
 const DOWNLOAD_FAILED_TITLE = 'The file could not be downloaded';
 export const DOWNLOAD_DISCARDED_MESSAGE =
   'The original file is no longer available because the file was cancelled.';
-/** How long the temporary download URL lives before it is revoked. */
-const REVOKE_DELAY_MS = 1000;
 
 /** The problem wording for a failed download: the actual error, never the content. */
 function downloadProblemMessage(error: unknown): string {
@@ -115,19 +114,6 @@ function downloadProblemMessage(error: unknown): string {
   if (isNetworkError(error)) return UNREACHABLE_MESSAGE;
   if (isAPIError(error) && error.message.trim() !== '') return error.message;
   return LOAD_FAILED_MESSAGE;
-}
-
-/** Saves `blob` as `fileName` through a temporary object URL (never read or shown). */
-function saveBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.hidden = true;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
 }
 
 const noSubscription = () => () => {};

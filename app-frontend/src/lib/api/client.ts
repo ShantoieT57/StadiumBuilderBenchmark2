@@ -23,6 +23,7 @@ import type {
   DefaultResponse,
   HTTPStatusCode,
   QueryParams,
+  WithResponseHeaders,
 } from '@/types/api';
 
 /**
@@ -42,6 +43,7 @@ export async function apiClient<T = unknown>(
     lastChangedUser,
     isBinaryResponse,
     requiresAuth,
+    withResponseHeaders,
     ...fetchConfig
   } = config;
 
@@ -76,7 +78,18 @@ export async function apiClient<T = unknown>(
     }
 
     // Handle successful responses
-    return await handleSuccessResponse<T>(response, isBinaryResponse);
+    const data = await handleSuccessResponse<unknown>(
+      response,
+      isBinaryResponse,
+    );
+    if (withResponseHeaders) {
+      const withHeaders: WithResponseHeaders<unknown> = {
+        data,
+        headers: response.headers,
+      };
+      return withHeaders as T;
+    }
+    return data as T;
   } catch (error) {
     // Handle network errors or other unexpected errors
     if (error instanceof Error && error.name === 'TypeError') {
