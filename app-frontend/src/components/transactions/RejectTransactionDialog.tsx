@@ -23,6 +23,8 @@
  *   Imported, so the trigger goes); Cancel / Escape still return it to the trigger.
  * - Other failures keep the form open with an inline problem and "Try again"
  *   (403 shows the server's message).
+ * - Reports whether it is closed, open or sending (`onActivityChange`), so the
+ *   list can close it when a live refresh shows someone else decided first.
  * The reason, account numbers and descriptions are never logged.
  */
 
@@ -40,6 +42,7 @@ import { useForm, useWatch } from 'react-hook-form';
 import {
   decisionConflictOf,
   decisionConflictToast,
+  type DecisionActivity,
 } from '@/components/transactions/decisionConflict';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -150,12 +153,14 @@ function RejectReasonForm({
   reasonRef,
   onClose,
   onSettled,
+  onSendingChange,
 }: {
   transactionId: string;
   sendingRef: RefObject<boolean>;
   reasonRef: RefObject<HTMLTextAreaElement | null>;
   onClose: () => void;
   onSettled: (details: TransactionDetails | null) => void;
+  onSendingChange: (sending: boolean) => void;
 }) {
   const { showToast } = useToast();
   const [pending, setPending] = useState(false);
@@ -192,10 +197,12 @@ function RejectReasonForm({
     sendingRef.current = true;
     setPending(true);
     setProblem(null);
+    onSendingChange(true);
     rejectTransaction(transactionId, { reason: trimmed }).then(
       (details) => {
         sendingRef.current = false;
         setPending(false);
+        onSendingChange(false);
         onClose();
         showToast({
           variant: 'success',
@@ -206,6 +213,7 @@ function RejectReasonForm({
       (error: unknown) => {
         sendingRef.current = false;
         setPending(false);
+        onSendingChange(false);
         if (isRedirectingToSignIn(error)) return;
         const conflict = decisionConflictOf(error);
         if (conflict) {
@@ -324,6 +332,7 @@ export function RejectTransactionDialog({
   transactionId,
   reference,
   onSettled,
+  onActivityChange,
 }: {
   transactionId: string;
   reference: string;
@@ -333,6 +342,8 @@ export function RejectTransactionDialog({
    * conflict did not say what the transaction is now.
    */
   onSettled: (details: TransactionDetails | null) => void;
+  /** Told when the form closes, opens, or starts sending. */
+  onActivityChange?: (activity: DecisionActivity) => void;
 }) {
   const [open, setOpen] = useState(false);
   const sendingRef = useRef(false);
@@ -345,6 +356,7 @@ export function RejectTransactionDialog({
     if (sendingRef.current) return;
     if (next) decidedRef.current = false;
     setOpen(next);
+    onActivityChange?.(next ? 'open' : 'closed');
   };
 
   const settle = (details: TransactionDetails | null) => {
@@ -392,6 +404,9 @@ export function RejectTransactionDialog({
           reasonRef={reasonRef}
           onClose={() => changeOpen(false)}
           onSettled={settle}
+          onSendingChange={(sending) =>
+            onActivityChange?.(sending ? 'sending' : 'open')
+          }
         />
       </DialogContent>
     </Dialog>

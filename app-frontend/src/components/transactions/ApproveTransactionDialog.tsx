@@ -16,6 +16,8 @@
  *   Imported, so the trigger goes); Cancel / Escape still return it to the trigger.
  * - Other failures keep the dialog open with an inline problem and "Try again"
  *   (403 shows the server's message).
+ * - Reports whether it is closed, open or sending (`onActivityChange`), so the
+ *   list can close it when a live refresh shows someone else decided first.
  * Messages name only the reference and status; nothing is logged.
  */
 
@@ -24,6 +26,7 @@ import { useRef, useState, type MouseEvent } from 'react';
 import {
   decisionConflictOf,
   decisionConflictToast,
+  type DecisionActivity,
 } from '@/components/transactions/decisionConflict';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -79,6 +82,7 @@ export function ApproveTransactionDialog({
   transactionId,
   reference,
   onSettled,
+  onActivityChange,
 }: {
   transactionId: string;
   reference: string;
@@ -88,6 +92,8 @@ export function ApproveTransactionDialog({
    * conflict did not say what the transaction is now.
    */
   onSettled: (details: TransactionDetails | null) => void;
+  /** Told when the confirmation closes, opens, or starts sending. */
+  onActivityChange?: (activity: DecisionActivity) => void;
 }) {
   const { showToast } = useToast();
   const [open, setOpen] = useState(false);
@@ -104,6 +110,7 @@ export function ApproveTransactionDialog({
     if (next) decidedRef.current = false;
     setOpen(next);
     if (!next) setProblem(null);
+    onActivityChange?.(next ? 'open' : 'closed');
   };
 
   const settle = (details: TransactionDetails | null) => {
@@ -116,11 +123,13 @@ export function ApproveTransactionDialog({
     sendingRef.current = true;
     setPending(true);
     setProblem(null);
+    onActivityChange?.('sending');
     approveTransaction(transactionId).then(
       (details) => {
         sendingRef.current = false;
         setPending(false);
         setOpen(false);
+        onActivityChange?.('closed');
         showToast({
           variant: 'success',
           title: transactionApprovedMessage(details.reference),
@@ -130,8 +139,9 @@ export function ApproveTransactionDialog({
       (error: unknown) => {
         sendingRef.current = false;
         setPending(false);
-        if (isRedirectingToSignIn(error)) return;
         const conflict = decisionConflictOf(error);
+        onActivityChange?.(conflict ? 'closed' : 'open');
+        if (isRedirectingToSignIn(error)) return;
         if (conflict) {
           setOpen(false);
           showToast(decisionConflictToast(conflict));

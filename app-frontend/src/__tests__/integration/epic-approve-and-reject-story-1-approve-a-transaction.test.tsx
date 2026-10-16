@@ -35,7 +35,7 @@
  *
  * These tests WILL FAIL until implemented (TDD red).
  */
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Will fail until implemented (TDD red): the `role` prop and the row actions.
@@ -48,6 +48,7 @@ import { apiClient, get, post } from '@/lib/api/client';
 import { createImportedTransactionCount } from '@/mocks/data/importedCount';
 import { userInfoFor } from '@/mocks/data/identity';
 import {
+  ALREADY_APPROVED_MESSAGE,
   SEEDED_APPROVED_NUMBERS,
   SEEDED_APPROVER_NAME,
   SEEDED_IMPORTED_NUMBERS,
@@ -75,7 +76,7 @@ vi.mock('next/navigation', () => ({
     back: vi.fn(),
   }),
   usePathname: () => '/transactions',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(listSearch),
 }));
 
 const mockGet = get as ReturnType<typeof vi.fn>;
@@ -87,6 +88,7 @@ class FakeEventSource extends EventTarget {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSED = 2;
+  static connections: FakeEventSource[] = [];
   readonly CONNECTING = 0;
   readonly OPEN = 1;
   readonly CLOSED = 2;
@@ -99,12 +101,21 @@ class FakeEventSource extends EventTarget {
   constructor(url: string | URL) {
     super();
     this.url = String(url);
+    FakeEventSource.connections.push(this);
   }
 
   close(): void {
     this.readyState = FakeEventSource.CLOSED;
   }
+
+  /** A named server event (`event: <name>` + `data: <json>`). */
+  emit(name: string, data: unknown): void {
+    this.dispatchEvent(new MessageEvent(name, { data: JSON.stringify(data) }));
+  }
 }
+
+/** The list URL's search string (e.g. "status=Imported"); none by default. */
+let listSearch = '';
 
 /** In-test back-end state, read on every request. */
 let dataset: TransactionDetails[] = [];
@@ -113,16 +124,20 @@ let signedInRole: UserRole = 'Approver';
 let answerApprove: (id: string) => Promise<TransactionDetails>;
 
 /** Page 1 of the default view (transaction date, newest first, 20 per page). */
-function servePage(): unknown {
-  const sorted = [...dataset].sort((a, b) =>
+function servePage(params?: unknown): unknown {
+  const status = (params as { status?: string } | undefined)?.status;
+  const matching = status
+    ? dataset.filter((d) => d.status === status)
+    : dataset;
+  const sorted = [...matching].sort((a, b) =>
     a.transactionDate < b.transactionDate ? 1 : -1,
   );
   return pageOf(sorted.map(toListItem));
 }
 
-function routeGet(endpoint: unknown): Promise<unknown> {
+function routeGet(endpoint: unknown, params?: unknown): Promise<unknown> {
   const url = String(endpoint);
-  if (url === '/transactions') return Promise.resolve(servePage());
+  if (url === '/transactions') return Promise.resolve(servePage(params));
   if (url === '/transactions/imported-count') {
     return Promise.resolve(
       createImportedTransactionCount({
@@ -195,12 +210,16 @@ const onFirstPage = (numbers: readonly number[]) =>
 describe('Epic approve-and-reject, Story 1: approve a transaction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    FakeEventSource.connections = [];
     vi.stubGlobal('EventSource', FakeEventSource);
     dataset = seedTransactionDetails();
     signedInRole = 'Approver';
+    listSearch = '';
     answerApprove = () =>
       Promise.reject({ message: 'Unexpected approve', statusCode: 500 });
-    mockGet.mockImplementation((endpoint: unknown) => routeGet(endpoint));
+    mockGet.mockImplementation((endpoint: unknown, params?: unknown) =>
+      routeGet(endpoint, params),
+    );
     mockApiClient.mockImplementation((endpoint: unknown) => routeGet(endpoint));
     mockPost.mockImplementation((endpoint: unknown) => routePost(endpoint));
   });
@@ -337,6 +356,107 @@ describe('Epic approve-and-reject, Story 1: approve a transaction', () => {
       expect(
         within(tableRow(reference)).getByRole('link', { name: reference }),
       ).toHaveFocus();
+    });
+  });
+
+  // R9 (AP-04): someone else decided first, seen by a live refresh.
+  it('closes an open Approve and says the transaction was already approved when a live refresh shows someone else approved it first', async () => {
+    const user = userEvent.setup();
+    const n = 30;
+    const reference = seededTransactionReference(n);
+
+    renderList('Approver');
+    await screen.findByRole('table');
+    await user.click(
+      within(tableRow(reference)).getByRole('button', {
+        name: approveName(reference),
+      }),
+    );
+    await screen.findByRole('alertdialog', { name: `Approve ${reference}?` });
+
+    // Another approver approves it; the back-end announces the change.
+    const index = dataset.findIndex((d) => d.reference === reference);
+    dataset[index] = approvedDetailsOf(dataset[index], {
+      by: SEEDED_APPROVER_NAME,
+      at: '2026-05-04T09:15:00Z',
+    });
+    const [connection] = FakeEventSource.connections;
+    expect(connection).toBeDefined();
+    act(() =>
+      connection.emit('transactions-changed', {
+        fileId: dataset[index].file.id,
+      }),
+    );
+
+    // The confirmation closes, nothing is sent, and a lasting problem says why.
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+    const notifications = screen.getByRole('region', {
+      name: /notifications/i,
+    });
+    const problem = await within(notifications).findByRole('alert');
+    expect(problem).toHaveTextContent(ALREADY_APPROVED_MESSAGE);
+    expect(problem).toHaveTextContent('It is now Approved.');
+    expect(mockPost).not.toHaveBeenCalled();
+
+    // The row shows its current status, and focus is back on its details link.
+    expect(
+      within(tableRow(reference)).getByText('Approved'),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        within(tableRow(reference)).getByRole('link', { name: reference }),
+      ).toHaveFocus();
+    });
+  });
+
+  // R9 (AP-04): the decided row leaves a Status=Imported view on a live refresh.
+  it('closes an open Approve and says the transaction was already approved when someone else approved it and it leaves a Status = Imported view', async () => {
+    const user = userEvent.setup();
+    listSearch = 'status=Imported';
+    const reference = seededTransactionReference(30);
+
+    renderList('Approver');
+    await screen.findByRole('table');
+    await user.click(
+      within(tableRow(reference)).getByRole('button', {
+        name: approveName(reference),
+      }),
+    );
+    await screen.findByRole('alertdialog', { name: `Approve ${reference}?` });
+
+    // Another approver approves it; the filtered list no longer has the row.
+    const index = dataset.findIndex((d) => d.reference === reference);
+    dataset[index] = approvedDetailsOf(dataset[index], {
+      by: SEEDED_APPROVER_NAME,
+      at: '2026-05-04T09:15:00Z',
+    });
+    const [connection] = FakeEventSource.connections;
+    act(() =>
+      connection.emit('transactions-changed', {
+        fileId: dataset[index].file.id,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+    const notifications = screen.getByRole('region', {
+      name: /notifications/i,
+    });
+    const problem = await within(notifications).findByRole('alert');
+    expect(problem).toHaveTextContent(ALREADY_APPROVED_MESSAGE);
+    expect(problem).toHaveTextContent('It is now Approved.');
+    expect(mockPost).not.toHaveBeenCalled();
+
+    // The row has left the view, so focus moves to the results.
+    const table = screen.getByRole('table');
+    expect(
+      within(table).queryByRole('link', { name: reference }),
+    ).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.activeElement).toContainElement(table);
     });
   });
 });

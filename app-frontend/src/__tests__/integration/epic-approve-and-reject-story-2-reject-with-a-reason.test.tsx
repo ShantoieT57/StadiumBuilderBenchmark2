@@ -43,7 +43,7 @@
  *
  * These tests WILL FAIL until implemented (TDD red).
  */
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Target module (Story 1 adds the `role` prop and the row actions) - TDD red.
@@ -56,6 +56,7 @@ import { apiClient, get, post } from '@/lib/api/client';
 import { userInfoFor } from '@/mocks/data/identity';
 import { createImportedTransactionCount } from '@/mocks/data/importedCount';
 import {
+  ALREADY_REJECTED_MESSAGE,
   REJECTION_REASON_REQUIRED_MESSAGE,
   pageOf,
   rejectedDetailsOf,
@@ -95,6 +96,7 @@ class FakeEventSource extends EventTarget {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSED = 2;
+  static connections: FakeEventSource[] = [];
   readonly CONNECTING = 0;
   readonly OPEN = 1;
   readonly CLOSED = 2;
@@ -107,10 +109,16 @@ class FakeEventSource extends EventTarget {
   constructor(url: string | URL) {
     super();
     this.url = String(url);
+    FakeEventSource.connections.push(this);
   }
 
   close(): void {
     this.readyState = FakeEventSource.CLOSED;
+  }
+
+  /** A named server event (`event: <name>` + `data: <json>`). */
+  emit(name: string, data: unknown): void {
+    this.dispatchEvent(new MessageEvent(name, { data: JSON.stringify(data) }));
   }
 }
 
@@ -189,6 +197,7 @@ async function openRejectDialog(
 describe('Epic approve-and-reject, Story 2: reject with a reason', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    FakeEventSource.connections = [];
     vi.stubGlobal('EventSource', FakeEventSource);
     dataset = seedTransactionDetails();
     sentBodies = [];
@@ -380,5 +389,51 @@ describe('Epic approve-and-reject, Story 2: reject with a reason', () => {
       { reason: 'Duplicate payment' },
       { reason: 'Duplicate payment' },
     ]);
+  });
+
+  // R14 (RJ-05): someone else decided first, seen by a live refresh.
+  it('closes an open Reject form and says the transaction was already rejected when a live refresh shows someone else rejected it first', async () => {
+    const user = userEvent.setup();
+    const dialog = await openRejectDialog(user);
+    await user.type(
+      within(dialog).getByLabelText(/reason/i),
+      'Duplicate payment',
+    );
+
+    // Another approver rejects it; the back-end announces the change.
+    const rejected = rejectedDetailsOf(targetDetails(), 'Wrong account', {
+      by: 'Another Approver',
+      at: '2026-05-04T08:15:00Z',
+    });
+    dataset = dataset.map((item) => (item.id === TARGET_ID ? rejected : item));
+    const [connection] = FakeEventSource.connections;
+    expect(connection).toBeDefined();
+    act(() =>
+      connection.emit('transactions-changed', { fileId: rejected.file.id }),
+    );
+
+    // The form closes, nothing is sent, and a lasting problem says why.
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    const notifications = screen.getByRole('region', {
+      name: /notifications/i,
+    });
+    const problem = await within(notifications).findByRole('alert');
+    expect(problem).toHaveTextContent(ALREADY_REJECTED_MESSAGE);
+    expect(problem).toHaveTextContent(
+      'It is now Rejected. Reason: Wrong account',
+    );
+    expect(sentBodies).toEqual([]);
+
+    // Focus is back on the row's details link.
+    const row = within(screen.getByRole('table')).getByRole('row', {
+      name: new RegExp(TARGET_REFERENCE),
+    });
+    await waitFor(() => {
+      expect(
+        within(row).getByRole('link', { name: TARGET_REFERENCE }),
+      ).toHaveFocus();
+    });
   });
 });

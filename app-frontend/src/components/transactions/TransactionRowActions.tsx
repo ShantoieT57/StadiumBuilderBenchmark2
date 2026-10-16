@@ -9,6 +9,7 @@
 
 import { ApproveTransactionDialog } from '@/components/transactions/ApproveTransactionDialog';
 import { RejectTransactionDialog } from '@/components/transactions/RejectTransactionDialog';
+import type { DecisionActivity } from '@/components/transactions/decisionConflict';
 import type {
   TransactionDetails,
   TransactionListItem,
@@ -17,10 +18,13 @@ import type {
 export function TransactionRowActions({
   item,
   onSettled,
+  onActivityChange,
 }: {
   item: TransactionListItem;
   /** The back-end's answer to a decision (see the Approve / Reject dialogs). */
   onSettled: (details: TransactionDetails | null) => void;
+  /** Whether Approve / Reject is closed, open, or sending (for the list). */
+  onActivityChange?: (activity: DecisionActivity) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -28,11 +32,13 @@ export function TransactionRowActions({
         transactionId={item.id}
         reference={item.reference}
         onSettled={onSettled}
+        onActivityChange={onActivityChange}
       />
       <RejectTransactionDialog
         transactionId={item.id}
         reference={item.reference}
         onSettled={onSettled}
+        onActivityChange={onActivityChange}
       />
     </div>
   );

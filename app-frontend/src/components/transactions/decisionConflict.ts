@@ -20,6 +20,14 @@ import type {
 } from '@/types/api-generated';
 import type { ToastOptions } from '@/types/toast';
 
+/** The back-end's 409 message for a transaction that is already Approved. */
+export const ALREADY_APPROVED_MESSAGE =
+  'This transaction has already been approved.';
+
+/** The back-end's 409 message for a transaction that is already Rejected. */
+export const ALREADY_REJECTED_MESSAGE =
+  'This transaction has already been rejected.';
+
 /** Used when a 409 carries no message of its own. */
 export const DECISION_CONFLICT_FALLBACK_MESSAGE =
   'This transaction has already been reviewed.';
@@ -55,14 +63,22 @@ export function decisionConflictOf(error: unknown): DecisionConflict | null {
   };
 }
 
+/** What the status sentence needs: the status, and the reason when known. */
+type CurrentStatus = Pick<TransactionDetails, 'status'> & {
+  rejectionReason?: string | null;
+};
+
 /** "It is now <Status>." plus " Reason: <reason>" when it was rejected. */
-export function currentStatusSentence(details: TransactionDetails): string {
+export function currentStatusSentence(details: CurrentStatus): string {
   const status = `It is now ${formatTransactionStatus(details.status)}.`;
   const reason = details.rejectionReason?.trim();
   return details.status === 'Rejected' && reason
     ? `${status} Reason: ${reason}`
     : status;
 }
+
+/** What an open Approve / Reject reports to the list: closed, open, or sending. */
+export type DecisionActivity = 'closed' | 'open' | 'sending';
 
 /** The persistent problem message for a conflict. */
 export function decisionConflictToast(
@@ -74,6 +90,27 @@ export function decisionConflictToast(
     message: conflict.transaction
       ? currentStatusSentence(conflict.transaction)
       : undefined,
+  };
+}
+
+/**
+ * The same conflict, seen first by a live refresh: the row behind an open
+ * Approve / Reject is no longer Imported, so the decision is never sent (BR2).
+ * Built from the transaction's details (or, failing those, its list row),
+ * worded as the back-end words the 409; the reason is included when known.
+ * Null while still Imported.
+ */
+export function decidedElsewhereToast(
+  item: CurrentStatus,
+): ToastOptions | null {
+  if (item.status === 'Imported') return null;
+  return {
+    variant: 'error',
+    title:
+      item.status === 'Approved'
+        ? ALREADY_APPROVED_MESSAGE
+        : ALREADY_REJECTED_MESSAGE,
+    message: currentStatusSentence(item),
   };
 }
 
