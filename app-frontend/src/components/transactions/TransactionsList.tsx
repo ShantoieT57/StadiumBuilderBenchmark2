@@ -131,6 +131,8 @@ interface LoadedPage {
   queryKey: string;
   /** Whether that query carried any filter (for the nothing-to-export wording). */
   filtered: boolean;
+  /** The request that loaded it (a new value per load). */
+  loadId: number;
 }
 
 interface Column {
@@ -529,6 +531,7 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
               page,
               queryKey: JSON.stringify(params),
               filtered: hasActiveFilters(params),
+              loadId: request,
             });
             setFailure(null);
           };
@@ -792,6 +795,11 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
               : null
           }
           filtersKey={filtersKey}
+          pageLoadId={
+            loaded !== null && loaded.queryKey === queryKey
+              ? loaded.loadId
+              : null
+          }
           onNothingToExport={reloadInPlace}
         />
       )}

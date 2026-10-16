@@ -151,18 +151,15 @@ export function parseListState(
 export function toTransactionsQuery(
   state: TransactionListState,
 ): ListTransactionsQuery {
-  const query: ListTransactionsQuery = {
-    sortBy: state.sortBy,
-    sortDirection: state.sortDirection,
-    page: state.page,
-    pageSize: state.pageSize,
-  };
-  for (const [key, value] of Object.entries(state.filters)) {
-    if (value !== undefined && value !== '') {
-      Object.assign(query, { [key]: value });
-    }
-  }
-  return query;
+  return withFilterParams(
+    {
+      sortBy: state.sortBy,
+      sortDirection: state.sortDirection,
+      page: state.page,
+      pageSize: state.pageSize,
+    },
+    state.filters,
+  );
 }
 
 /**
@@ -172,11 +169,18 @@ export function toTransactionsQuery(
 export function toExportQuery(
   state: TransactionListState,
 ): ExportTransactionsQuery {
-  const query: ExportTransactionsQuery = {
-    sortBy: state.sortBy,
-    sortDirection: state.sortDirection,
-  };
-  for (const [key, value] of Object.entries(state.filters)) {
+  return withFilterParams(
+    { sortBy: state.sortBy, sortDirection: state.sortDirection },
+    state.filters,
+  );
+}
+
+/** `query` with every filter that is set added to it. */
+function withFilterParams<Q extends ExportTransactionsQuery>(
+  query: Q,
+  filters: TransactionListFilters,
+): Q {
+  for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined && value !== '') {
       Object.assign(query, { [key]: value });
     }

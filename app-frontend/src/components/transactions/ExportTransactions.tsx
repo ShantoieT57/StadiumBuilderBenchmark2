@@ -14,19 +14,23 @@
  * - Unavailable (`aria-disabled`, still focusable, selecting it sends nothing)
  *   before the list has loaded, when the loaded list matches nothing (with the
  *   `nothingToExport` note beside it, linked by `aria-describedby`), and after a
- *   409 until the filters change.
+ *   409 until the filters change or a page of the current view loaded after the
+ *   409 matches something again (a live refresh brought rows back).
  * - Problems show inline beside the button (`role=alert`), never as a toast: a
  *   409 shows the server's message (and `onNothingToExport` lets the list bring
  *   its totals up to date); 403 the server's message; 400 a fixed sentence plus
  *   the server's `errors`; anything else (network, 5xx) "The export could not be
  *   downloaded." with "Try again", which repeats the same query. A problem stays
  *   until a new export starts or the filters (`filtersKey`) change.
+ * - Keyboard focus: the button is disabled while exporting, so focus would fall
+ *   to the page; when the export started from Export (or "Try again"), focus
+ *   returns once it settles, to "Try again" if a new one is offered, else Export.
  * - 401: the central client handler is already leaving for sign-in; nothing shows.
  * - Rendered for Approvers only by the list (hidden, never disabled, for Importers).
  */
 
 import { DownloadIcon } from 'lucide-react';
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -40,6 +44,7 @@ import {
   statusOf,
 } from '@/lib/api/errors';
 import { saveBlob } from '@/lib/download/saveBlob';
+import { hasActiveFilters } from '@/lib/transactions/activeFilters';
 import type { ExportTransactionsQuery } from '@/types/api-generated';
 
 export const EXPORT_LABEL = 'Export';
@@ -63,8 +68,13 @@ interface ExportProblem {
   details: string[];
   /** The query to repeat on "Try again" (network / server failures only). */
   retryQuery: ExportTransactionsQuery | null;
-  /** 409: nothing matches any more; Export stays unavailable until the filters change. */
+  /**
+   * 409: nothing matches any more; Export stays unavailable until the filters
+   * change or a later page of the view matches something again.
+   */
   stale: boolean;
+  /** The `pageLoadId` on screen when the problem arrived. */
+  seenPageLoadId: number | null;
 }
 
 function problemOf(
@@ -77,12 +87,19 @@ function problemOf(
     (isAPIError(error) && error.message.trim() !== ''
       ? error.message
       : undefined);
-  if (!isNetworkError(error) && status === 409 && serverMessage) {
+  if (!isNetworkError(error) && status === 409) {
+    // The server's own words; without them, the same wording it would send
+    // (never the client's generic "HTTP 409: Conflict").
     return {
-      message: serverMessage,
+      message:
+        bodyMessageOf(error) ??
+        (hasActiveFilters(query)
+          ? NO_MATCHES_TO_EXPORT_MESSAGE
+          : NO_TRANSACTIONS_TO_EXPORT_MESSAGE),
       details: [],
       retryQuery: null,
       stale: true,
+      seenPageLoadId: null,
     };
   }
   if (!isNetworkError(error) && status === 403 && serverMessage) {
@@ -91,6 +108,7 @@ function problemOf(
       details: [],
       retryQuery: null,
       stale: false,
+      seenPageLoadId: null,
     };
   }
   if (!isNetworkError(error) && status === 400) {
@@ -103,6 +121,7 @@ function problemOf(
       details,
       retryQuery: null,
       stale: false,
+      seenPageLoadId: null,
     };
   }
   return {
@@ -110,6 +129,7 @@ function problemOf(
     details: [],
     retryQuery: query,
     stale: false,
+    seenPageLoadId: null,
   };
 }
 
@@ -118,6 +138,7 @@ export function ExportTransactions({
   available,
   nothingToExport,
   filtersKey,
+  pageLoadId = null,
   onNothingToExport,
 }: {
   /** The list's current filters and sort (no paging). */
@@ -128,6 +149,12 @@ export function ExportTransactions({
   nothingToExport: string | null;
   /** Identifies the current filters (not the sort); a change clears any problem. */
   filtersKey: string;
+  /**
+   * Identifies the page on screen when it answers the current view (a new value
+   * per load), else null. A later one that matches something (`available`)
+   * clears a 409's problem.
+   */
+  pageLoadId?: number | null;
   /** Called after a 409: the list should bring its totals up to date. */
   onNothingToExport?: () => void;
 }) {
@@ -143,9 +170,44 @@ export function ExportTransactions({
     setProblem(null);
   }
 
+  // A 409's problem lifts once a page of this view loaded after it matches
+  // something again (a live refresh brought rows back).
+  if (
+    problem?.stale === true &&
+    available &&
+    pageLoadId !== null &&
+    pageLoadId !== problem.seenPageLoadId
+  ) {
+    setProblem(null);
+  }
+
+  // The filters and page now, for answers that arrive after they changed.
+  const filtersKeyRef = useRef(filtersKey);
+  const pageLoadIdRef = useRef(pageLoadId);
+  useEffect(() => {
+    filtersKeyRef.current = filtersKey;
+    pageLoadIdRef.current = pageLoadId;
+  }, [filtersKey, pageLoadId]);
+
+  // Focus goes back after an export that was started from here (the button is
+  // disabled while it runs, so focus would otherwise be left on the page).
+  const containerRef = useRef<HTMLDivElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
+  const tryAgainRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef(false);
+  useEffect(() => {
+    if (exporting || !restoreFocusRef.current) return;
+    restoreFocusRef.current = false;
+    (tryAgainRef.current ?? exportButtonRef.current)?.focus();
+  }, [exporting]);
+
   const unavailable = !available || problem?.stale === true;
 
   const runExport = (exportQuery: ExportTransactionsQuery) => {
+    const startedFor = filtersKey;
+    const active = document.activeElement;
+    restoreFocusRef.current =
+      active !== null && (containerRef.current?.contains(active) ?? false);
     setProblem(null);
     setExporting(true);
     exportTransactions(exportQuery).then(
@@ -162,7 +224,13 @@ export function ExportTransactions({
         setExporting(false);
         // The page is leaving for sign-in: show nothing.
         if (isRedirectingToSignIn(error)) return;
-        const next = problemOf(error, exportQuery);
+        // The filters changed while it ran: its problem is about a view that
+        // has gone, and must not lock Export for the new one.
+        if (filtersKeyRef.current !== startedFor) return;
+        const next = {
+          ...problemOf(error, exportQuery),
+          seenPageLoadId: pageLoadIdRef.current,
+        };
         setProblem(next);
         if (next.stale) onNothingToExport?.();
       },
@@ -181,18 +249,18 @@ export function ExportTransactions({
           <p>{problem.message}</p>
           {problem.details.length > 0 && (
             <ul className="list-disc pl-5">
-              {problem.details.map((detail) => (
-                <li key={detail}>{detail}</li>
+              {problem.details.map((detail, index) => (
+                <li key={index}>{detail}</li>
               ))}
             </ul>
           )}
           {problem.retryQuery !== null && (
             <Button
+              ref={tryAgainRef}
               type="button"
               variant="outline"
               size="sm"
               className="mt-2"
-              disabled={exporting}
               onClick={() => {
                 if (problem.retryQuery !== null) runExport(problem.retryQuery);
               }}
@@ -215,8 +283,12 @@ export function ExportTransactions({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-2 md:flex-row-reverse md:items-center md:justify-start">
+    <div
+      ref={containerRef}
+      className="flex min-w-0 flex-col gap-2 md:flex-row-reverse md:items-center md:justify-start"
+    >
       <Button
+        ref={exportButtonRef}
         type="button"
         variant="outline"
         className="w-full shrink-0 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 md:w-auto"

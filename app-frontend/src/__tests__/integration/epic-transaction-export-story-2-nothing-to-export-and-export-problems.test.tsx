@@ -97,6 +97,7 @@ const mockExport = exportTransactions as unknown as ReturnType<typeof vi.fn>;
 
 /** Stand-in for the browser EventSource (absent from jsdom). */
 class FakeEventSource extends EventTarget {
+  static instances: FakeEventSource[] = [];
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSED = 2;
@@ -112,6 +113,12 @@ class FakeEventSource extends EventTarget {
   constructor(url: string | URL) {
     super();
     this.url = String(url);
+    FakeEventSource.instances.push(this);
+  }
+
+  /** The server sends a named event. */
+  emit(name: string, data: unknown): void {
+    this.dispatchEvent(new MessageEvent(name, { data: JSON.stringify(data) }));
   }
 
   close(): void {
@@ -187,6 +194,7 @@ async function findExportProblem(): Promise<HTMLElement> {
 describe('Epic transaction-export, Story 2: nothing to export, and export problems', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    FakeEventSource.instances = [];
     vi.stubGlobal('EventSource', FakeEventSource);
     // jsdom has no object URLs; the download saves the Blob through one.
     Object.assign(URL, {
@@ -326,5 +334,41 @@ describe('Epic transaction-export, Story 2: nothing to export, and export proble
     await user.click(screen.getByRole('button', { name: /^export$/i }));
     const refusal = await findExportProblem();
     expect(refusal).toHaveTextContent(FORBIDDEN_MESSAGE);
+  });
+
+  // A 409 locks Export; a live refresh that brings rows back unlocks it.
+  it('makes Export available again after a 409 once a live refresh shows matching transactions, and keeps keyboard focus on Export', async () => {
+    const user = userEvent.setup();
+    const seeded = dataset;
+    mockExport.mockImplementationOnce(() => {
+      // Everything went before the export ran.
+      dataset = [];
+      return Promise.reject({ message: 'Conflict', statusCode: 409 });
+    });
+
+    render(listTree());
+    await screen.findByRole('table');
+    await user.click(screen.getByRole('button', { name: /^export$/i }));
+
+    const problem = await findExportProblem();
+    expect(problem).toHaveTextContent(NO_TRANSACTIONS_TO_EXPORT_MESSAGE);
+    const exportButton = screen.getByRole('button', { name: /^export$/i });
+    await waitFor(() => {
+      expect(exportButton).toHaveAttribute('aria-disabled', 'true');
+    });
+    expect(exportButton).toHaveFocus();
+
+    // Transactions arrive and the list refreshes live.
+    dataset = seeded;
+    FakeEventSource.instances[0].emit('transactions-changed', {});
+    await screen.findByRole('table');
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /^export$/i }),
+      ).not.toHaveAttribute('aria-disabled', 'true');
+    });
+    expect(
+      screen.queryByText(NO_TRANSACTIONS_TO_EXPORT_MESSAGE),
+    ).not.toBeInTheDocument();
   });
 });
