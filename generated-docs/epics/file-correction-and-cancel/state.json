@@ -9,12 +9,7 @@
       "file-upload"
     ],
     "introducesSharedSurface": false,
-    "unverifiedAssumptions": [
-      "Changing a row so it breaks a rule blocks \"Check again\" until fixed; untouched rows never block it. Right behaviour?",
-      "\"Save changes\" with nothing changed shows a short \"No changes to save.\" message instead of being greyed out. OK?",
-      "Not-waiting notice says e.g. \"Its current status is Completed.\" (\"Failed, cancelled\" for a cancelled file). Wording OK?",
-      "A refused cancel shows a problem headed \"The file could not be cancelled\" with the server explanation underneath. Wording OK?"
-    ],
+    "unverifiedAssumptions": [],
     "manualTestResults": [
       {
         "by": "Claude (delegated by user; automated browser walkthrough against the real back-end)",
@@ -23,7 +18,17 @@
         "failed": 0,
         "notes": "Real failed files: partial then full correction (loaded 3 rows with corrected values), save without recheck, not-waiting notice, cancel refused (409, 2 approved) and allowed (content discarded, hidden from dashboard), Importer shortcuts, Approver no-access and no cancel."
       }
-    ]
+    ],
+    "confirmedAssumptions": {
+      "confirmedAt": "2026-10-16T07:20:31.639Z",
+      "by": "user",
+      "items": [
+        "Changing a row so it breaks a rule blocks \"Check again\" until fixed; untouched rows never block it. Right behaviour?",
+        "\"Save changes\" with nothing changed shows a short \"No changes to save.\" message instead of being greyed out. OK?",
+        "Not-waiting notice says e.g. \"Its current status is Completed.\" (\"Failed, cancelled\" for a cancelled file). Wording OK?",
+        "A refused cancel shows a problem headed \"The file could not be cancelled\" with the server explanation underneath. Wording OK?"
+      ]
+    }
   },
   "phase": "COMPLETE",
   "stories": {

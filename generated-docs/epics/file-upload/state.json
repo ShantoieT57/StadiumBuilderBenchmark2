@@ -8,12 +8,7 @@
       "file-dashboard-and-details"
     ],
     "introducesSharedSurface": false,
-    "unverifiedAssumptions": [
-      "A file over 10 MB should show \"The file is too large. Files can be up to 10 MB.\" through the app proxy (not a generic upload failure). Claude verifies this against the real back-end at manual test.",
-      "A real upload's progress bar moves through the app proxy (Claude verifies at manual test).",
-      "Several server validation messages at once are shown together on one line. Readable enough?",
-      "An unexpected server answer keeps the file and offers \"Try again\" with \"The file could not be uploaded.\" Right offer?"
-    ],
+    "unverifiedAssumptions": [],
     "manualTestResults": [
       {
         "by": "Claude (delegated by user; automated browser walkthrough against the real back-end)",
@@ -22,7 +17,17 @@
         "failed": 0,
         "notes": "Real uploads through the UI: success + live Completed, duplicate naming the earlier file, client refusals, 10.5 MB file → 413 message through the proxy, progress bar 0→100 under throttling, invalid rows → Failed live on dashboard, 360px, approver no-access."
       }
-    ]
+    ],
+    "confirmedAssumptions": {
+      "confirmedAt": "2026-10-16T07:20:31.639Z",
+      "by": "user",
+      "items": [
+        "A file over 10 MB should show \"The file is too large. Files can be up to 10 MB.\" through the app proxy (not a generic upload failure). Claude verifies this against the real back-end at manual test.",
+        "A real upload's progress bar moves through the app proxy (Claude verifies at manual test).",
+        "Several server validation messages at once are shown together on one line. Readable enough?",
+        "An unexpected server answer keeps the file and offers \"Try again\" with \"The file could not be uploaded.\" Right offer?"
+      ]
+    }
   },
   "phase": "COMPLETE",
   "stories": {
