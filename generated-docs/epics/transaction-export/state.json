@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "epic": {
+    "slug": "transaction-export",
+    "name": "Exporting transactions",
+    "createdAt": "2026-10-16T01:18:02.104Z",
+    "dependsOn": [
+      "transactions-list"
+    ],
+    "introducesSharedSurface": false,
+    "unverifiedAssumptions": [],
+    "manualTestResults": []
+  },
+  "phase": "PLAN",
+  "stories": {},
+  "halt": null,
+  "lastUpdated": "2026-10-16T01:18:02.104Z"
+}
