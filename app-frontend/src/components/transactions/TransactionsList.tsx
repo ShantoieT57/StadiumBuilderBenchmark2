@@ -6,8 +6,19 @@
  * - The view (sort, page, page size, filters) lives in the URL search params, so
  *   reload, Back and links restore it (BR2). Changing it pushes a new URL.
  * - Desktop (md and up) shows a table; narrow screens show compact rows with the
- *   key details and an actions area holding the details link (later epics add
- *   Approve / Reject there).
+ *   key details and an actions area holding the details link.
+ * - For an Approver (`role`), every Imported row offers Approve and Reject (a
+ *   last "Actions" column on desktop, after "Details" on phones). A decision's
+ *   answer replaces the row at once, then the view is refetched in place; focus
+ *   then moves to the row's details link, or to the results when the row has
+ *   left the view.
+ * - When a live refresh would take away the row behind an open Approve / Reject
+ *   (no longer Imported, or gone from the view), the transaction is fetched once
+ *   first. If someone else decided it, the dialog closes and the same lasting
+ *   problem as a 409 says so, with the current status (and reason); nothing is
+ *   sent (BR2, R9, R14). If it is still Imported and only left the view, the
+ *   dialog closes quietly with the row. A refresh that arrives while a decision is being sent waits
+ *   until its answer is in, so the decision's own answer (200 or 409) speaks.
  * - Refetches in place on the shell's `transactions-changed` and `resync` events,
  *   keeping the current view (NFR-5: no connection of its own).
  * - A failed first load replaces the list with a problem + Retry; a failed later
@@ -29,6 +40,12 @@ import {
 } from 'react';
 
 import { RefreshFailedNotice } from '@/components/feedback/RefreshFailedNotice';
+import {
+  decidedElsewhereToast,
+  toTransactionListItem,
+  type DecisionActivity,
+} from '@/components/transactions/decisionConflict';
+import { TransactionRowActions } from '@/components/transactions/TransactionRowActions';
 import { TransactionStatusBadge } from '@/components/transactions/TransactionStatusBadge';
 import {
   fileNameFor,
@@ -55,7 +72,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useEvents } from '@/contexts/EventsContext';
-import { getTransactions } from '@/lib/api/endpoints';
+import { useImportedCount } from '@/contexts/ImportedCountContext';
+import { useToast } from '@/contexts/ToastContext';
+import { getTransaction, getTransactions } from '@/lib/api/endpoints';
 import { isNetworkError, isRedirectingToSignIn } from '@/lib/api/errors';
 import {
   formatAmount,
@@ -81,9 +100,11 @@ import {
 import { rememberListSearch } from '@/lib/transactions/listReturn';
 import type {
   ListTransactionsQuery,
+  TransactionDetails,
   TransactionListItem,
   TransactionPage,
   TransactionSortColumn,
+  UserRole,
 } from '@/types/api-generated';
 
 export const LOADING_TRANSACTIONS_MESSAGE = 'Loading transactions';
@@ -146,15 +167,64 @@ function SortIcon({
   );
 }
 
+/**
+ * Marks a row's details link (`data-transaction-link`), so focus can return to
+ * the row after a decision.
+ */
+const ROW_LINK_ATTRIBUTE = 'data-transaction-link';
+
+/** Where a decision was made from: the row's id (a new object each time). */
+interface FocusRequest {
+  transactionId: string;
+}
+
+/**
+ * After a decision: focus the row's visible details link (table or compact list,
+ * whichever is shown), or the results when the row is no longer in the view.
+ */
+function focusAfterDecision(
+  results: HTMLElement | null,
+  transactionId: string,
+): void {
+  if (results === null) return;
+  const links = Array.from(
+    results.querySelectorAll<HTMLElement>(`[${ROW_LINK_ATTRIBUTE}]`),
+  ).filter((link) => link.getAttribute(ROW_LINK_ATTRIBUTE) === transactionId);
+  const target =
+    links.find((link) => link.getClientRects().length > 0) ?? links[0];
+  (target ?? results).focus();
+}
+
+/** The Approve / Reject currently open, and whether it is sending. */
+interface OpenDecision {
+  transactionId: string;
+  activity: Exclude<DecisionActivity, 'closed'>;
+}
+
+/** Approve / Reject are offered to an Approver on Imported rows only (R1, BR1). */
+function canDecide(
+  role: UserRole | undefined,
+  item: TransactionListItem,
+): boolean {
+  return role === 'Approver' && item.status === 'Imported';
+}
+
 function TransactionsTable({
   items,
   view,
+  role,
   onSort,
+  onSettled,
+  onActivity,
 }: {
   items: TransactionListItem[];
   view: TransactionListState;
+  role: UserRole | undefined;
   onSort: (column: TransactionSortColumn) => void;
+  onSettled: (id: string, details: TransactionDetails | null) => void;
+  onActivity: (id: string, activity: DecisionActivity) => void;
 }) {
+  const showActions = role === 'Approver';
   return (
     <div className="hidden md:block">
       <Table>
@@ -189,6 +259,7 @@ function TransactionsTable({
                 </TableHead>
               );
             })}
+            {showActions && <TableHead>Actions</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -197,6 +268,7 @@ function TransactionsTable({
               <TableCell className="font-medium">
                 <Link
                   href={transactionDetailsHref(item.id)}
+                  data-transaction-link={item.id}
                   className="text-primary underline-offset-4 hover:underline focus-visible:ring-ring/50 rounded-sm outline-none focus-visible:ring-[3px]"
                 >
                   {item.reference}
@@ -219,6 +291,19 @@ function TransactionsTable({
                 <TransactionStatusBadge status={item.status} />
               </TableCell>
               <TableCell>{item.file.fileName}</TableCell>
+              {showActions && (
+                <TableCell>
+                  {canDecide(role, item) && (
+                    <TransactionRowActions
+                      item={item}
+                      onSettled={(details) => onSettled(item.id, details)}
+                      onActivityChange={(activity) =>
+                        onActivity(item.id, activity)
+                      }
+                    />
+                  )}
+                </TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>
@@ -227,7 +312,17 @@ function TransactionsTable({
   );
 }
 
-function TransactionsCompactList({ items }: { items: TransactionListItem[] }) {
+function TransactionsCompactList({
+  items,
+  role,
+  onSettled,
+  onActivity,
+}: {
+  items: TransactionListItem[];
+  role: UserRole | undefined;
+  onSettled: (id: string, details: TransactionDetails | null) => void;
+  onActivity: (id: string, activity: DecisionActivity) => void;
+}) {
   return (
     <ul aria-label="Transactions" className="flex flex-col gap-2 md:hidden">
       {items.map((item) => (
@@ -248,13 +343,24 @@ function TransactionsCompactList({ items }: { items: TransactionListItem[] }) {
             </span>
             <span>{formatTransactionType(item.transactionType)}</span>
           </div>
-          {/* Row actions: the details link; later epics add Approve / Reject here. */}
+          {/* Row actions: the details link, then Approve / Reject for an Approver. */}
           <div className="flex flex-wrap justify-end gap-2">
             <Button asChild variant="outline" size="sm">
-              <Link href={transactionDetailsHref(item.id)}>
-                Details<span className="sr-only"> for {item.reference}</span>
+              <Link
+                href={transactionDetailsHref(item.id)}
+                data-transaction-link={item.id}
+              >
+                {'Details '}
+                <span className="sr-only">for {item.reference}</span>
               </Link>
             </Button>
+            {canDecide(role, item) && (
+              <TransactionRowActions
+                item={item}
+                onSettled={(details) => onSettled(item.id, details)}
+                onActivityChange={(activity) => onActivity(item.id, activity)}
+              />
+            )}
           </div>
         </li>
       ))}
@@ -371,9 +477,11 @@ function Paging({
   );
 }
 
-export function TransactionsList() {
+export function TransactionsList({ role }: { role?: UserRole } = {}) {
   const { view, navigate } = useListQuery();
   const { subscribe } = useEvents();
+  const { refreshImportedCount } = useImportedCount();
+  const { showToast } = useToast();
 
   const listSearch = useMemo(() => toListSearch(view), [view]);
   const query = useMemo(() => toTransactionsQuery(view), [view]);
@@ -385,24 +493,82 @@ export function TransactionsList() {
   const [failure, setFailure] = useState<unknown>(null);
   const queryRef = useRef<ListTransactionsQuery>(query);
   const requestRef = useRef(0);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
+  // The Approve / Reject that is open now (one at a time), and whether a live
+  // refresh was held back while it was sending.
+  const openDecisionRef = useRef<OpenDecision | null>(null);
+  const heldRefreshRef = useRef(false);
 
   // State is only ever set from the promise callbacks (after the response
   // arrives), never synchronously while an effect is running.
-  const load = useCallback((params: ListTransactionsQuery): Promise<void> => {
-    const request = ++requestRef.current;
-    return getTransactions(params).then(
-      (page) => {
-        if (request !== requestRef.current) return;
-        setLoaded({ page, queryKey: JSON.stringify(params) });
-        setFailure(null);
-      },
-      (error: unknown) => {
-        if (request !== requestRef.current) return;
-        if (isRedirectingToSignIn(error)) return;
-        setFailure(error ?? new Error('Load failed'));
-      },
-    );
-  }, []);
+  const load = useCallback(
+    (params: ListTransactionsQuery): Promise<void> => {
+      const request = ++requestRef.current;
+      return getTransactions(params).then(
+        (page) => {
+          if (request !== requestRef.current) return;
+          const apply = () => {
+            setLoaded({ page, queryKey: JSON.stringify(params) });
+            setFailure(null);
+          };
+          // Showing this page would take away the row behind the open Approve /
+          // Reject (decided by someone else, or gone from the view), closing
+          // its dialog. Ask for the transaction first, so the person is told
+          // why, with its current status, as a 409 would (R9, R14).
+          const open = openDecisionRef.current;
+          if (open === null || open.activity !== 'open') {
+            apply();
+            return;
+          }
+          const id = open.transactionId;
+          const row = page.items.find((item) => item.id === id);
+          if (row !== undefined && row.status === 'Imported') {
+            apply();
+            return;
+          }
+          return getTransaction(id)
+            .then(
+              (details): TransactionDetails | null => details,
+              () => null,
+            )
+            .then((details) => {
+              if (request !== requestRef.current) return;
+              const current = openDecisionRef.current;
+              if (
+                current?.transactionId === id &&
+                current.activity === 'sending'
+              ) {
+                // Confirmed meanwhile: its answer speaks; refetch after it.
+                heldRefreshRef.current = true;
+                return;
+              }
+              const stillOpen = current?.transactionId === id;
+              const known = details ?? row ?? null;
+              const conflict =
+                known === null ? null : decidedElsewhereToast(known);
+              if (stillOpen && conflict !== null) {
+                openDecisionRef.current = null;
+                apply();
+                showToast(conflict);
+                setFocusRequest({ transactionId: id });
+                return;
+              }
+              // Still Imported but no longer in this view (or unknown): the row,
+              // and with it the dialog, goes quietly.
+              if (stillOpen) openDecisionRef.current = null;
+              apply();
+            });
+        },
+        (error: unknown) => {
+          if (request !== requestRef.current) return;
+          if (isRedirectingToSignIn(error)) return;
+          setFailure(error ?? new Error('Load failed'));
+        },
+      );
+    },
+    [showToast],
+  );
 
   // Remember the view so the details screen's back link returns to it.
   useEffect(() => {
@@ -425,6 +591,11 @@ export function TransactionsList() {
   // Live refresh: refetch in place with the current view.
   useEffect(() => {
     const refresh = () => {
+      // Held while a decision is being sent: its answer speaks first.
+      if (openDecisionRef.current?.activity === 'sending') {
+        heldRefreshRef.current = true;
+        return;
+      }
       void load(queryRef.current);
     };
     const unsubscribers = [
@@ -434,9 +605,59 @@ export function TransactionsList() {
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, [subscribe, load]);
 
+  // Once the view has refetched after a decision, put focus back near the row.
+  useEffect(() => {
+    if (focusRequest === null) return;
+    focusAfterDecision(resultsRef.current, focusRequest.transactionId);
+  }, [focusRequest]);
+
+  // Tracks the open Approve / Reject; a refresh held back while it was sending
+  // is applied once the answer is in.
+  const trackDecision = (id: string, activity: DecisionActivity) => {
+    if (activity === 'closed') {
+      if (openDecisionRef.current?.transactionId === id) {
+        openDecisionRef.current = null;
+      }
+    } else {
+      openDecisionRef.current = { transactionId: id, activity };
+    }
+    if (activity !== 'sending' && heldRefreshRef.current) {
+      heldRefreshRef.current = false;
+      void load(queryRef.current);
+    }
+  };
+
   const retry = () => {
     setFailure(null);
     void load(queryRef.current);
+  };
+
+  // After a decision (or a "someone got there first" answer): show the row as
+  // the back-end returned it at once, then refetch the current view in place so
+  // an active filter drops a row that no longer matches (BR9), and bring the
+  // menu's waiting count up to date (BR8). The row's Approve / Reject have gone,
+  // so focus moves once the refetch has landed (see focusAfterDecision).
+  const settled = (id: string, details: TransactionDetails | null) => {
+    if (details !== null) {
+      const row = toTransactionListItem(details);
+      setLoaded((current) =>
+        current === null
+          ? current
+          : {
+              ...current,
+              page: {
+                ...current.page,
+                items: current.page.items.map((item) =>
+                  item.id === row.id ? row : item,
+                ),
+              },
+            },
+      );
+    }
+    void load(queryRef.current).then(() => {
+      setFocusRequest({ transactionId: id });
+    });
+    refreshImportedCount();
   };
 
   const result = loaded?.page ?? null;
@@ -511,9 +732,17 @@ export function TransactionsList() {
         <TransactionsTable
           items={result.items}
           view={view}
+          role={role}
           onSort={(column) => navigate(withSort(view, column))}
+          onSettled={settled}
+          onActivity={trackDecision}
         />
-        <TransactionsCompactList items={result.items} />
+        <TransactionsCompactList
+          items={result.items}
+          role={role}
+          onSettled={settled}
+          onActivity={trackDecision}
+        />
         <Paging
           result={result}
           view={view}
@@ -534,9 +763,13 @@ export function TransactionsList() {
         </p>
       )}
       {refreshFailed && <RefreshFailedNotice onRetry={retry} />}
+      {/* Focusable from script only: focus lands here after a decision when the
+          decided row has left the view. */}
       <div
+        ref={resultsRef}
+        tabIndex={-1}
         aria-busy={updating ? true : undefined}
-        className="flex min-w-0 flex-col gap-4"
+        className="flex min-w-0 flex-col gap-4 outline-none"
       >
         {content}
       </div>

@@ -27,14 +27,10 @@
  * - States: while loading, visible text containing "Loading"; a failed load shows a
  *   `role="alert"` problem plus a "Retry" button that reloads in place; a 404 shows
  *   "Transaction not found".
- * - AC-6 (list part) is asserted through the list page module
- *   `@/app/(authenticated)/transactions/page` (being built by Story 1 in parallel),
- *   ASSUMING only that it also returns `<RouteGuard route="/transactions">` as its
- *   outermost element and that its content loads `getTransactions` and shows each
- *   row's reference. No list-component name or prop contract is assumed.
- * - Neither page renders a button or link named Approve, Reject or Export, whichever
- *   role is signed in (the signed-in user is served from GET /auth/me in case the
- *   content asks for it).
+ * - The details page renders no button or link named Approve, Reject or Export,
+ *   whichever role is signed in (the signed-in user is served from GET /auth/me in
+ *   case the content asks for it). The list's own Approve / Reject arrived with the
+ *   approve-and-reject epic and are tested there.
  *
  * Data-contract: the API client is mocked; the real proxy -> back-end chain is
  * verified during the manual checklist and the Playwright spec.
@@ -47,7 +43,6 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Will fail until implemented (TDD red)
 import TransactionDetailsPage from '@/app/(authenticated)/transactions/[transactionId]/page';
-import TransactionsPage from '@/app/(authenticated)/transactions/page';
 import { RouteGuard } from '@/components/shell/RouteGuard';
 import { EventsProvider } from '@/contexts/EventsContext';
 import { ToastProvider } from '@/contexts/ToastContext';
@@ -274,24 +269,14 @@ describe('Epic transactions-list, Story 3: transaction details', () => {
   });
 
   // AC-6
-  it('shows no Approve, Reject or Export controls on the list or the details to an Importer or an Approver', async () => {
+  // The list's Approve / Reject (approve-and-reject epic, R1) are covered by that
+  // epic's tests; the details screen stays read-only for both roles.
+  it('shows no Approve, Reject or Export controls on the details to an Importer or an Approver', async () => {
     const details = createTransactionDetails({ status: 'Imported' });
-    const firstListReference = seedTransactions()[0].reference;
     const forbiddenControl = /\b(approve|reject|export)\b/i;
 
     for (const role of ['Importer', 'Approver'] as const) {
       serveApi(details, role);
-
-      // The list (asserted through the list page; see the header assumption).
-      const list = await renderGuardedPage(TransactionsPage);
-      await screen.findAllByText(firstListReference);
-      expect(
-        screen.queryByRole('button', { name: forbiddenControl }),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole('link', { name: forbiddenControl }),
-      ).not.toBeInTheDocument();
-      list.unmount();
 
       // The details.
       const detailsView = await renderDetailsPage(details.id);

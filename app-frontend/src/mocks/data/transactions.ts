@@ -13,10 +13,21 @@
  *   - 4 account numbers; amounts distinct, 2 decimals, 45.00 .. 98,250.75
  *   - reference `TXN-202604DD-00NN`, unique; id `5d0c9b10-0000-4000-8000-0000000000NN`
  *
+ * Approve / reject (epic approve-and-reject) - shared by both layers:
+ *   - ALREADY_APPROVED_MESSAGE / ALREADY_REJECTED_MESSAGE, `alreadyReviewedMessage(status)`
+ *     and `transactionConflictBody(details)` - the 409 `{ message, transaction }` body
+ *   - `checkRejectionReason(raw)` - the back-end's reason rule (trimmed, 1..500 by
+ *     UTF-16 `.length`) with its exact messages, keyed `reason` (REJECTION_REASON_FIELD)
+ *   - `approvedDetailsOf()` / `rejectedDetailsOf()` - an Imported record after a decision
+ *   - `createRejectedTransactionDetails()` / `createApprovedTransactionDetails()`
+ *   - `seededTransactionId(n)` / `seededTransactionReference(n)` and
+ *     SEEDED_IMPORTED_NUMBERS / SEEDED_APPROVED_NUMBERS / SEEDED_REJECTED_NUMBERS
+ *
  * Imports are type-only and relative so the Playwright runtime can load this file
  * without `@/` alias plumbing.
  */
 import type {
+  TransactionConflict,
   TransactionDetails,
   TransactionListItem,
   TransactionPage,
@@ -27,6 +38,12 @@ import { seededTransactionFiles } from './files';
 
 /** The display name of the seeded approver who approved / rejected seeded rows. */
 const APPROVER_NAME = 'Approver User';
+
+/** The seeded approver's display name (= `userInfoFor('Approver').name`). */
+export const SEEDED_APPROVER_NAME = APPROVER_NAME;
+
+/** The exact 404 message of GET / approve / reject for an unknown transaction. */
+export const TRANSACTION_NOT_FOUND_MESSAGE = 'Transaction not found';
 
 /** Canonical default: an imported credit from april-batch-1.csv. */
 export function createTransaction(
@@ -181,6 +198,154 @@ export function seedTransactionDetails(): TransactionDetails[] {
 /** The seeded dataset as list rows (fresh copies, in seed order: 1 Apr .. 30 Apr). */
 export function seedTransactions(): TransactionListItem[] {
   return seedTransactionDetails().map(toListItem);
+}
+
+/** Id of seeded transaction `n` (1..30), e.g. 30 -> `5d0c9b10-0000-4000-8000-000000000030`. */
+export function seededTransactionId(n: number): string {
+  return `5d0c9b10-0000-4000-8000-${pad(n, 12)}`;
+}
+
+/** Reference of seeded transaction `n` (1..30), e.g. 30 -> `TXN-20260430-0030`. */
+export function seededTransactionReference(n: number): string {
+  return `TXN-202604${pad(n, 2)}-${pad(n, 4)}`;
+}
+
+/** Seed numbers (= day of April) of the 15 Imported seeded transactions. */
+export const SEEDED_IMPORTED_NUMBERS: readonly number[] = [
+  1, 3, 6, 7, 9, 12, 13, 15, 18, 19, 21, 24, 25, 27, 30,
+];
+
+/** Seed numbers of the 10 Approved seeded transactions. */
+export const SEEDED_APPROVED_NUMBERS: readonly number[] = [
+  2, 5, 8, 11, 14, 17, 20, 23, 26, 29,
+];
+
+/** Seed numbers of the 5 Rejected seeded transactions (reason "Account number does not match the beneficiary"). */
+export const SEEDED_REJECTED_NUMBERS: readonly number[] = [4, 10, 16, 22, 28];
+
+// ---------------------------------------------------------------------------
+// Approve / reject (epic approve-and-reject)
+// ---------------------------------------------------------------------------
+
+/** The exact 409 message for a transaction that is already Approved. */
+export const ALREADY_APPROVED_MESSAGE =
+  'This transaction has already been approved.';
+
+/** The exact 409 message for a transaction that is already Rejected. */
+export const ALREADY_REJECTED_MESSAGE =
+  'This transaction has already been rejected.';
+
+/** The 409 message the back-end sends for a transaction already in `status`. */
+export function alreadyReviewedMessage(
+  status: Exclude<TransactionStatus, 'Imported'>,
+): string {
+  return status === 'Approved'
+    ? ALREADY_APPROVED_MESSAGE
+    : ALREADY_REJECTED_MESSAGE;
+}
+
+/**
+ * The 409 body of approve / reject: `{ message, transaction }`, the message naming
+ * the transaction's current (final) status. Defaults to an Approved transaction.
+ */
+export function transactionConflictBody(
+  transaction: TransactionDetails = createApprovedTransactionDetails(),
+): TransactionConflict {
+  const status = transaction.status === 'Rejected' ? 'Rejected' : 'Approved';
+  return {
+    message: alreadyReviewedMessage(status),
+    transaction: { ...transaction, file: { ...transaction.file } },
+  };
+}
+
+/** The validation-problem key of every reason problem (POST reject 400). */
+export const REJECTION_REASON_FIELD = 'reason';
+
+/** The most characters (UTF-16 code units, JavaScript `.length`) a trimmed reason may have. */
+export const MAX_REJECTION_REASON_LENGTH = 500;
+
+/** The exact 400 message for a missing / empty / whitespace-only reason. */
+export const REJECTION_REASON_REQUIRED_MESSAGE =
+  'A reason is required to reject a transaction.';
+
+/** The exact 400 message for a reason longer than 500 characters once trimmed. */
+export const REJECTION_REASON_TOO_LONG_MESSAGE =
+  'The reason can be at most 500 characters.';
+
+/** The exact 400 message when `reason` is not a string (reported under `reason` AND `$`). */
+export const REJECTION_REASON_NOT_A_STRING_MESSAGE =
+  'The JSON value could not be converted to System.String.';
+
+/**
+ * The back-end's reason rule: trims, then requires 1..500 characters counted as
+ * UTF-16 code units. Returns the trimmed reason to store, or the problem message.
+ * `null` / `undefined` count as missing.
+ */
+export function checkRejectionReason(
+  raw: string | null | undefined,
+): { ok: true; reason: string } | { ok: false; message: string } {
+  const trimmed = (raw ?? '').trim();
+  if (trimmed.length === 0) {
+    return { ok: false, message: REJECTION_REASON_REQUIRED_MESSAGE };
+  }
+  if (trimmed.length > MAX_REJECTION_REASON_LENGTH) {
+    return { ok: false, message: REJECTION_REASON_TOO_LONG_MESSAGE };
+  }
+  return { ok: true, reason: trimmed };
+}
+
+/** Who made a decision and when (ISO date-time). */
+export interface ReviewStamp {
+  by: string;
+  at: string;
+}
+
+/** `details` as approve returns it: Approved, `lastChangedBy` / `lastChangedAt` from `stamp`. */
+export function approvedDetailsOf(
+  details: TransactionDetails,
+  stamp: ReviewStamp,
+): TransactionDetails {
+  return {
+    ...details,
+    file: { ...details.file },
+    status: 'Approved',
+    lastChangedBy: stamp.by,
+    lastChangedAt: stamp.at,
+    rejectionReason: null,
+  };
+}
+
+/** `details` as reject returns it: Rejected with the (already trimmed) `reason`, stamped. */
+export function rejectedDetailsOf(
+  details: TransactionDetails,
+  reason: string,
+  stamp: ReviewStamp,
+): TransactionDetails {
+  return {
+    ...details,
+    file: { ...details.file },
+    status: 'Rejected',
+    lastChangedBy: stamp.by,
+    lastChangedAt: stamp.at,
+    rejectionReason: reason,
+  };
+}
+
+/** Canonical Approved details: TXN-20260415-0001 approved by "Approver User". */
+export function createApprovedTransactionDetails(
+  overrides: Partial<TransactionDetails> = {},
+): TransactionDetails {
+  return createTransactionDetails({ status: 'Approved', ...overrides });
+}
+
+/**
+ * Canonical Rejected details: TXN-20260415-0001 rejected by "Approver User" on
+ * 2026-05-02 10:30 (+02:00) with the reason "Duplicate of an earlier payment".
+ */
+export function createRejectedTransactionDetails(
+  overrides: Partial<TransactionDetails> = {},
+): TransactionDetails {
+  return createTransactionDetails({ status: 'Rejected', ...overrides });
 }
 
 /**

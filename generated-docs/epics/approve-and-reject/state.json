@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "epic": {
+    "slug": "approve-and-reject",
+    "name": "Approving and rejecting transactions",
+    "createdAt": "2026-10-15T13:56:06.831Z",
+    "dependsOn": [
+      "transactions-list"
+    ],
+    "introducesSharedSurface": false,
+    "unverifiedAssumptions": [],
+    "manualTestResults": [
+      {
+        "at": "2026-10-16T01:17:27.281Z",
+        "by": "Claude (delegated by user)",
+        "result": "pass",
+        "summary": "36/36 real-backend checks on prod build :3200 (approve, reject, reason rules, 409/live decided-elsewhere incl. filtered view, menu count incl. live updates, phone layout, Importer 403). Found and fixed: open dialog vanished silently on a live update."
+      }
+    ]
+  },
+  "phase": "COMPLETE-ON-BRANCH",
+  "stories": {
+    "1": {
+      "status": "complete",
+      "commit": null,
+      "e2eStatus": "deferred",
+      "startedAt": "2026-10-15T14:11:00Z",
+      "completedAt": "2026-10-15T14:19:29.177Z"
+    },
+    "2": {
+      "status": "complete",
+      "commit": null,
+      "e2eStatus": "deferred",
+      "startedAt": "2026-10-15T14:19:29.177Z",
+      "completedAt": "2026-10-15T14:26:40.348Z"
+    },
+    "3": {
+      "status": "complete",
+      "commit": null,
+      "e2eStatus": "deferred",
+      "startedAt": "2026-10-15T14:26:40.348Z",
+      "completedAt": "2026-10-15T14:30:06.353Z"
+    }
+  },
+  "halt": null,
+  "lastUpdated": "2026-10-16T01:17:27.282Z"
+}

@@ -1,8 +1,10 @@
 import { AppNav } from '@/components/shell/AppNav';
+import { ImportedCountBadge } from '@/components/shell/ImportedCountBadge';
 import { SessionRecheck } from '@/components/shell/SessionRecheck';
 import { SignedInHeader } from '@/components/shell/SignedInHeader';
 import { SignOutButton } from '@/components/shell/SignOutButton';
 import { EventsProvider } from '@/contexts/EventsContext';
+import { ImportedCountProvider } from '@/contexts/ImportedCountContext';
 import { requireSession } from '@/lib/auth/requireSession';
 
 /**
@@ -17,6 +19,9 @@ import { requireSession } from '@/lib/auth/requireSession';
  * is served `Cache-Control: no-store` and the Back button cannot replay one
  * after sign-out; `SessionRecheck` covers a back/forward-cache restore. The
  * shell holds the tab's single live connection (`EventsProvider`).
+ *
+ * Approvers also get the waiting count on the Transactions menu item
+ * (`ImportedCountProvider` + `ImportedCountBadge`); Importers never request it.
  */
 export const dynamic = 'force-dynamic';
 
@@ -27,19 +32,40 @@ export default async function SignedInLayout({
 }>) {
   const user = await requireSession();
 
-  return (
-    <EventsProvider>
+  const isApprover = user.role === 'Approver';
+
+  const shell = (
+    <>
       <SessionRecheck />
       <div className="flex min-h-screen flex-col">
         <SignedInHeader
           user={user}
-          nav={<AppNav role={user.role} />}
+          nav={
+            <AppNav
+              role={user.role}
+              badges={
+                isApprover
+                  ? { '/transactions': <ImportedCountBadge /> }
+                  : undefined
+              }
+            />
+          }
           actions={<SignOutButton />}
         />
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
           {children}
         </main>
       </div>
+    </>
+  );
+
+  return (
+    <EventsProvider>
+      {isApprover ? (
+        <ImportedCountProvider>{shell}</ImportedCountProvider>
+      ) : (
+        shell
+      )}
     </EventsProvider>
   );
 }
