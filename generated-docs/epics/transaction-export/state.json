@@ -9,9 +9,16 @@
     ],
     "introducesSharedSurface": false,
     "unverifiedAssumptions": [],
-    "manualTestResults": []
+    "manualTestResults": [
+      {
+        "at": "2026-10-16T06:43:32.029Z",
+        "by": "Claude (delegated by user)",
+        "result": "pass",
+        "summary": "23/23 real-backend checks on prod build :3200: unfiltered/filtered/sorted/search/rejected exports (names, BOM, header, all pages, list order, byte-identical to back-end), nothing-to-export (incl. live update), 360px, Importer 403."
+      }
+    ]
   },
-  "phase": "EPIC-END",
+  "phase": "COMPLETE-ON-BRANCH",
   "stories": {
     "1": {
       "status": "complete",
@@ -29,5 +36,5 @@
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-16T06:32:52.734Z"
+  "lastUpdated": "2026-10-16T06:43:32.029Z"
 }
