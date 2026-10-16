@@ -200,6 +200,22 @@
  *   is answered correctly but not kept. No `transactions-changed` / `resync` events are
  *   emitted (specs stub `/api/events`).
  *
+ * Export (epic transaction-export). CSV bytes, name, messages and headers come from
+ * src/mocks/data/transactionExport.ts.
+ *   - GET transactions/export  no ACTIVE session -> 401; Importer -> 403 `forbiddenBody()`
+ *                              (checked before the query). Same filter + sort params,
+ *                              checks (400) and order as GET transactions over the dataset
+ *                              + this run's changes (decisions, loaded rows, cancelled files
+ *                              removed); `page` / `pageSize` ignored, never paged. Nothing
+ *                              matches -> 409 `nothingToExportBody(hasActiveFilters)` =
+ *                              NO_MATCHES_TO_EXPORT_MESSAGE with any filter (search counted
+ *                              only when not blank), NO_TRANSACTIONS_TO_EXPORT_MESSAGE with
+ *                              none. Else 200 `exportCsvOf(rows)` (BOM, header, CR LF records)
+ *                              with Content-Type `text/csv; charset=utf-8` and
+ *                              Content-Disposition `attachment; filename=<n>; filename*=UTF-8''<n>`,
+ *                              <n> = `exportFileName(filter, { exportDate: today in SAST,
+ *                              fileName: first matching row's file })`.
+ *
  * Every other request -> 401 `unauthenticatedBody('NotSignedIn')`.
  *
  * Bodies come from the project-wide mock-data sources (never inlined here).
@@ -269,6 +285,15 @@ import {
   toListItem,
   transactionConflictBody,
 } from '../../src/mocks/data/transactions';
+import {
+  exportCsvOf,
+  exportDateOf,
+  exportFileName,
+  exportNameFilterOf,
+  exportResponseHeaders,
+  hasActiveExportFilter,
+  nothingToExportBody,
+} from '../../src/mocks/data/transactionExport';
 import {
   FILE_REQUIRED_MESSAGE,
   FILE_TOO_LARGE_MESSAGE,
@@ -657,11 +682,31 @@ function validationProblem(errors: Record<string, string[]>): MockResponse {
   return json(400, body);
 }
 
-/** GET /transactions over `all` (the dataset with the run's changes) with query `params`. */
-function listTransactions(
+/** The checked filter, sort and (list only) paging of a transactions query. */
+interface TransactionCriteria {
+  page: number;
+  pageSize: number;
+  sortBy: TransactionSortColumn;
+  direction: SortDirection;
+  status: TransactionStatus | null;
+  fileId: string | null;
+  dateFrom: string | null;
+  dateTo: string | null;
+  minAmount: number | null;
+  maxAmount: number | null;
+  /** Trimmed, lower-cased; '' = no search. */
+  search: string;
+}
+
+/**
+ * Reads and checks the transactions filter + sort query (GET /transactions and
+ * GET /transactions/export). `withPaging` false ignores `page` / `pageSize`, as the
+ * export does. Returns the criteria, or the 400 ValidationProblem.
+ */
+function readTransactionQuery(
   params: URLSearchParams,
-  all: TransactionDetails[],
-): MockResponse {
+  withPaging: boolean,
+): TransactionCriteria | MockResponse {
   const errors: Record<string, string[]> = {};
   const fail = (name: string, message: string): void => {
     errors[name] = [message];
@@ -671,12 +716,12 @@ function listTransactions(
     return value === null || value === '' ? null : value;
   };
 
-  const pageRaw = get('page');
+  const pageRaw = withPaging ? get('page') : null;
   const page = pageRaw === null ? 1 : Number(pageRaw);
   if (!Number.isInteger(page) || page < 1)
     fail('page', 'The page must be 1 or more.');
 
-  const pageSizeRaw = get('pageSize');
+  const pageSizeRaw = withPaging ? get('pageSize') : null;
   const pageSize = pageSizeRaw === null ? 20 : Number(pageSizeRaw);
   if (!PAGE_SIZES.includes(pageSize)) {
     fail('pageSize', 'The page size must be 5, 10, 20 or 50.');
@@ -743,12 +788,46 @@ function listTransactions(
     );
   }
 
-  if (Object.keys(errors).length > 0 || !sortBy || !direction) {
+  if (
+    Object.keys(errors).length > 0 ||
+    !sortBy ||
+    !direction ||
+    status === undefined
+  ) {
     return validationProblem(errors);
   }
 
-  const search = (params.get('search') ?? '').trim().toLowerCase();
+  return {
+    page,
+    pageSize,
+    sortBy,
+    direction,
+    status,
+    fileId,
+    dateFrom,
+    dateTo,
+    minAmount,
+    maxAmount,
+    search: (params.get('search') ?? '').trim().toLowerCase(),
+  };
+}
 
+/** The transactions of `all` matching `criteria`, in its sort order (no paging). */
+function selectTransactions(
+  criteria: TransactionCriteria,
+  all: TransactionDetails[],
+): TransactionDetails[] {
+  const {
+    sortBy,
+    direction,
+    status,
+    fileId,
+    dateFrom,
+    dateTo,
+    minAmount,
+    maxAmount,
+    search,
+  } = criteria;
   const matching = all.filter(
     (t) =>
       (!status || t.status === status) &&
@@ -763,21 +842,59 @@ function listTransactions(
   );
 
   const sign = direction === 'Desc' ? -1 : 1;
-  const sorted = [...matching].sort(
+  return [...matching].sort(
     (a, b) =>
       sign *
       (compareKeys(sortKey(a, sortBy), sortKey(b, sortBy)) ||
         compareKeys(a.reference.toLowerCase(), b.reference.toLowerCase())),
   );
+}
 
+/** GET /transactions over `all` (the dataset with the run's changes) with query `params`. */
+function listTransactions(
+  params: URLSearchParams,
+  all: TransactionDetails[],
+): MockResponse {
+  const criteria = readTransactionQuery(params, true);
+  if (isResponse(criteria)) return criteria;
   return json(
     200,
-    pageOf(sorted.map(toListItem), {
-      page,
-      pageSize,
+    pageOf(selectTransactions(criteria, all).map(toListItem), {
+      page: criteria.page,
+      pageSize: criteria.pageSize,
       hasAnyTransactions: all.length > 0,
     }),
   );
+}
+
+/**
+ * GET /transactions/export over `all` (the dataset with the run's changes): the
+ * list's filters, checks and order, no paging. 409 `nothingToExportBody()` when
+ * nothing matches; else 200 the CSV (transactionExport.ts) with the server-built
+ * name in Content-Disposition. The file part of the name comes from the first
+ * matching transaction's file, as the back-end does.
+ */
+function exportTransactions(
+  params: URLSearchParams,
+  all: TransactionDetails[],
+  now: Date = new Date(),
+): MockResponse {
+  const criteria = readTransactionQuery(params, false);
+  if (isResponse(criteria)) return criteria;
+  const rows = selectTransactions(criteria, all);
+  const filter = exportNameFilterOf(params);
+  if (rows.length === 0) {
+    return json(409, nothingToExportBody(hasActiveExportFilter(filter)));
+  }
+  const fileName = exportFileName(filter, {
+    exportDate: exportDateOf(now),
+    fileName: rows[0].file.fileName,
+  });
+  return {
+    status: 200,
+    headers: exportResponseHeaders(fileName),
+    body: exportCsvOf(rows),
+  };
 }
 
 /** GET /transactions/{id} over `all`. */
@@ -1614,6 +1731,16 @@ export function respondFor(
       userInfoFor(role).name,
       dataset,
       runStateFor(cookieHeader, dataset),
+    );
+  }
+  if (method === 'GET' && path === '/transactions/export') {
+    const role = roleFromCookie(cookieHeader);
+    if (!role) return unauthenticated(cookieHeader);
+    if (role !== 'Approver') return json(403, forbiddenBody());
+    const dataset = datasetFromCookie(cookieHeader);
+    return exportTransactions(
+      typeof query === 'string' ? new URLSearchParams(query) : query,
+      currentTransactions(dataset, runStateFor(cookieHeader, dataset)),
     );
   }
   if (method === 'GET' && path === '/transactions/imported-count') {

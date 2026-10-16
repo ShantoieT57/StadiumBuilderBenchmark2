@@ -7,6 +7,7 @@
  * any other sort writes both `sortBy` and `sortDirection`.
  */
 import type {
+  ExportTransactionsQuery,
   ListTransactionsQuery,
   SortDirection,
   TransactionSortColumn,
@@ -150,13 +151,36 @@ export function parseListState(
 export function toTransactionsQuery(
   state: TransactionListState,
 ): ListTransactionsQuery {
-  const query: ListTransactionsQuery = {
-    sortBy: state.sortBy,
-    sortDirection: state.sortDirection,
-    page: state.page,
-    pageSize: state.pageSize,
-  };
-  for (const [key, value] of Object.entries(state.filters)) {
+  return withFilterParams(
+    {
+      sortBy: state.sortBy,
+      sortDirection: state.sortDirection,
+      page: state.page,
+      pageSize: state.pageSize,
+    },
+    state.filters,
+  );
+}
+
+/**
+ * The `GET /transactions/export` query for a list state: the list's filters and
+ * sort, without `page` / `pageSize` (the export spans every page).
+ */
+export function toExportQuery(
+  state: TransactionListState,
+): ExportTransactionsQuery {
+  return withFilterParams(
+    { sortBy: state.sortBy, sortDirection: state.sortDirection },
+    state.filters,
+  );
+}
+
+/** `query` with every filter that is set added to it. */
+function withFilterParams<Q extends ExportTransactionsQuery>(
+  query: Q,
+  filters: TransactionListFilters,
+): Q {
+  for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined && value !== '') {
       Object.assign(query, { [key]: value });
     }

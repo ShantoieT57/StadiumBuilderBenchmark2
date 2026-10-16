@@ -66,6 +66,17 @@ export interface APIRequestConfig extends RequestInit {
   requiresAuth?: boolean;
   lastChangedUser?: string; // For audit trails - remove if not needed
   isBinaryResponse?: boolean; // Flag to indicate response should be treated as binary data
+  /**
+   * When true, a successful call resolves `{ data, headers }` (`WithResponseHeaders<T>`)
+   * instead of the body alone, e.g. to read a download's `Content-Disposition`.
+   */
+  withResponseHeaders?: boolean;
+}
+
+/** What `apiClient` resolves with when called with `withResponseHeaders: true`. */
+export interface WithResponseHeaders<T> {
+  data: T;
+  headers: Headers;
 }
 
 /**
