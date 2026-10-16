@@ -21,13 +21,13 @@
       "completedAt": "2026-10-16T06:26:39.519Z"
     },
     "2": {
-      "status": "in-progress",
+      "status": "complete",
       "commit": null,
       "e2eStatus": "deferred",
       "startedAt": "2026-10-16T06:26:39.519Z",
-      "completedAt": null
+      "completedAt": "2026-10-16T06:32:34.467Z"
     }
   },
   "halt": null,
-  "lastUpdated": "2026-10-16T06:26:39.519Z"
+  "lastUpdated": "2026-10-16T06:32:34.468Z"
 }

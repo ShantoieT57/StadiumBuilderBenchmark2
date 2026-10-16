@@ -47,7 +47,11 @@ import {
   toTransactionListItem,
   type DecisionActivity,
 } from '@/components/transactions/decisionConflict';
-import { ExportTransactions } from '@/components/transactions/ExportTransactions';
+import {
+  ExportTransactions,
+  NO_MATCHES_TO_EXPORT_MESSAGE,
+  NO_TRANSACTIONS_TO_EXPORT_MESSAGE,
+} from '@/components/transactions/ExportTransactions';
 import { TransactionRowActions } from '@/components/transactions/TransactionRowActions';
 import { TransactionStatusBadge } from '@/components/transactions/TransactionStatusBadge';
 import {
@@ -125,6 +129,8 @@ interface LoadedPage {
   page: TransactionPage;
   /** The `GET /transactions` query (as JSON) this page answers. */
   queryKey: string;
+  /** Whether that query carried any filter (for the nothing-to-export wording). */
+  filtered: boolean;
 }
 
 interface Column {
@@ -491,6 +497,11 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
   const query = useMemo(() => toTransactionsQuery(view), [view]);
   const queryKey = useMemo(() => JSON.stringify(query), [query]);
   const exportQuery = useMemo(() => toExportQuery(view), [view]);
+  // The filters alone (not sort or paging): a change clears an export problem.
+  const filtersKey = useMemo(
+    () => JSON.stringify(view.filters),
+    [view.filters],
+  );
 
   // The last page received, with the query it answers: while it answers an
   // older query the rows stay in place and the list shows it is updating.
@@ -514,7 +525,11 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
         (page) => {
           if (request !== requestRef.current) return;
           const apply = () => {
-            setLoaded({ page, queryKey: JSON.stringify(params) });
+            setLoaded({
+              page,
+              queryKey: JSON.stringify(params),
+              filtered: hasActiveFilters(params),
+            });
             setFailure(null);
           };
           // Showing this page would take away the row behind the open Approve /
@@ -630,6 +645,11 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
       heldRefreshRef.current = false;
       void load(queryRef.current);
     }
+  };
+
+  // A 409 from the export: the list is out of date; refetch the view in place.
+  const reloadInPlace = () => {
+    void load(queryRef.current);
   };
 
   const retry = () => {
@@ -760,7 +780,21 @@ export function TransactionsList({ role }: { role?: UserRole } = {}) {
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      {role === 'Approver' && <ExportTransactions query={exportQuery} />}
+      {role === 'Approver' && (
+        <ExportTransactions
+          query={exportQuery}
+          available={result !== null && result.totalCount > 0}
+          nothingToExport={
+            result !== null && result.totalCount === 0 && loaded !== null
+              ? loaded.filtered
+                ? NO_MATCHES_TO_EXPORT_MESSAGE
+                : NO_TRANSACTIONS_TO_EXPORT_MESSAGE
+              : null
+          }
+          filtersKey={filtersKey}
+          onNothingToExport={reloadInPlace}
+        />
+      )}
       {/* Always present once loaded (a live region announces changes), and a
           fixed height so the rows below do not move when it fills. */}
       {loaded !== null && (
